@@ -16,7 +16,7 @@ import rawpy
 class ImageViewer:
     def __init__(self, root):
         self.root = root
-        self.root.title("🐦 Water-redstart: the chirping viewer v1.8 (双平台)")
+        self.root.title("🐦 Water-redstart: the chirping viewer v2.0 (双平台)")
         # 初始窗口大小
         self.root.geometry("900x700")
 
@@ -56,6 +56,10 @@ class ImageViewer:
         self.top_frame.pack(fill=tk.X)
         self.top_info_label = tk.Label(self.top_frame, text="✨ 准备好寻找最可爱的小鸟了吗？ ✨", font=("Microsoft YaHei", self.ui_font_size), fg="#555555", bg=self.ui_bg_color)
         self.top_info_label.pack(pady=2)
+        
+        # 进度条
+        self.progress_scale = tk.Scale(self.top_frame, from_=0, to=len(self.images)-1 if self.images else 0, orient=tk.HORIZONTAL, bg=self.ui_bg_color, highlightthickness=0, showvalue=0, command=self.on_progress_change)
+        self.progress_scale.pack(fill=tk.X, padx=20, pady=1)
 
         # 使用 Canvas 来显示图片并支持放大拖拽
         # 设置内边距和圆角边框感 (缩减内边距提高图片占比)
@@ -76,10 +80,11 @@ class ImageViewer:
         self.im_y = 0
         self.drag_start_x = 0
         self.drag_start_y = 0
+        self.reverse_mode = False
 
         # 热键配置
-        self.hotkey_next = 'w'
-        self.hotkey_copy = 'd'
+        self.hotkey_next = 'd'
+        self.hotkey_copy = 'w'
         self.hotkey_undo = 'a'
         self.hotkey_clip = 's'
         self._current_bind_next = None
@@ -109,6 +114,11 @@ class ImageViewer:
         
         # 设置菜单
         settings_menu = tk.Menu(menubar, tearoff=0)
+        
+        self.reverse_var = tk.BooleanVar(value=False)
+        settings_menu.add_checkbutton(label="倒序选片 (从后往前)", variable=self.reverse_var, command=self.toggle_reverse)
+        settings_menu.add_separator()
+        
         settings_menu.add_command(label="修改操作热键与文件夹...", command=self.show_hotkey_dialog)
         menubar.add_cascade(label="设置", menu=settings_menu)
         
@@ -125,7 +135,7 @@ class ImageViewer:
         ))
         help_menu.add_separator()
         help_menu.add_command(label="关于", command=lambda: messagebox.showinfo(
-            "关于", "🐦 Water-redstart: the chirping viewer\n\n版本：1.8 (双平台)\n作者：Crowpaw@2026\n鸣谢：ARC, Untribiium, ~ris, Gemini 3.1 Pro\n于一"
+            "关于", "🐦 Water-redstart: the chirping viewer\n\n版本：2.0 (双平台)\n作者：Crowpaw@2026\n鸣谢：ARC, Untribiium, ~ris, 蓝嘴红鹊, Gemini 3.1 Pro\n于一"
         ))
         menubar.add_cascade(label="帮助", menu=help_menu)
         
@@ -153,6 +163,15 @@ class ImageViewer:
         self._current_bind_clip = self.hotkey_clip
 
         self.update_title()
+
+    def toggle_reverse(self):
+        self.reverse_mode = self.reverse_var.get()
+        self.images.reverse()
+        self.index = len(self.images) - 1 - self.index
+        # history reset may be good, or just update indices in history, but simpler to clear history
+        self.history.clear()
+        self.progress_scale.set(self.index)
+        self.load_image()
 
     def get_select_count(self):
         select_folder_path = os.path.join(self.current_dir, self.select_folder_name)
@@ -422,6 +441,12 @@ class ImageViewer:
         b4.config(**btn_style)
         b4.pack(pady=6)
 
+    def on_progress_change(self, val):
+        new_idx = int(val)
+        if new_idx != self.index and 0 <= new_idx < len(self.images):
+            self.index = int(new_idx)
+            self.load_image()
+
     def start_preload(self):
         # 抛入后台线程进行加载，不阻塞UI主线程
         if self.preload_thread and self.preload_thread.is_alive():
@@ -458,6 +483,10 @@ class ImageViewer:
 
             self.is_fit = True
             self.update_title()
+            
+            # Update progress bar
+            self.progress_scale.set(self.index)
+            
             self.display_image()
             
             # 本页渲染完毕后，触发下两张图片的预感加载
@@ -604,21 +633,15 @@ class ImageViewer:
             
         img_path = os.path.join(self.current_dir, self.images[self.index])
         try:
-            image = Image.open(img_path)
-            
             if sys.platform == 'win32':
-                output = io.BytesIO()
-                image.convert("RGB").save(output, "BMP")
-                data = output.getvalue()[14:]  # 去掉 14 字节的 BMP 文件头
-                
-                win32clipboard.OpenClipboard()
-                win32clipboard.EmptyClipboard()
-                win32clipboard.SetClipboardData(win32clipboard.CF_DIB, data)
-                win32clipboard.CloseClipboard()
+                # 使用 PowerShell 将文件复制进剪切板 (解决转 BMP 后文件过大问题)
+                ps_cmd = f"Set-Clipboard -Path '{img_path}'"
+                subprocess.run(['powershell', '-command', ps_cmd], creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0)
                 
                 winsound.Beep(2500, 80)
                 winsound.Beep(3000, 80)
             elif sys.platform == 'darwin':
+                image = Image.open(img_path)
                 # macOS 使用 osascript 借助临时 TIFF 文件复制图片到剪贴板
                 temp_tiff = os.path.join(self.current_dir, ".temp_clip.tiff")
                 image.save(temp_tiff, "TIFF")
