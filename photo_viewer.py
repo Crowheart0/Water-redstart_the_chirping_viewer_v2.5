@@ -16,7 +16,7 @@ import rawpy
 class ImageViewer:
     def __init__(self, root):
         self.root = root
-        self.root.title("🐦 Water-redstart: the chirping viewer v2.2 (双平台)")
+        self.root.title("🐦 Water-redstart: the chirping viewer v2.3 (双平台)")
         # 初始窗口大小
         self.root.geometry("900x700")
 
@@ -29,6 +29,7 @@ class ImageViewer:
         self.root.configure(bg=self.window_bg_color)
 
         self.is_fullscreen = False
+        self.keep_top_bar_in_fullscreen = False
 
         # 获取当前文件夹下所有图片（屏蔽子目录）
         self.supported_formats = ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.arw', '.cr2', '.cr3', '.nef', '.dng', '.orf', '.naw', '.nrw')
@@ -110,10 +111,10 @@ class ImageViewer:
         self.root.after(100, self.load_image)
 
     def create_menu(self):
-        menubar = tk.Menu(self.root)
+        self.menubar = tk.Menu(self.root)
         
         # 设置菜单
-        settings_menu = tk.Menu(menubar, tearoff=0)
+        settings_menu = tk.Menu(self.menubar, tearoff=0)
         
         self.reverse_var = tk.BooleanVar(value=False)
         settings_menu.add_checkbutton(label="倒序选片 (从后往前)", variable=self.reverse_var, command=self.toggle_reverse)
@@ -124,10 +125,10 @@ class ImageViewer:
         settings_menu.add_separator()
         
         settings_menu.add_command(label="修改操作热键与文件夹...", command=self.show_hotkey_dialog)
-        menubar.add_cascade(label="设置", menu=settings_menu)
+        self.menubar.add_cascade(label="设置", menu=settings_menu)
         
         # 帮助菜单
-        help_menu = tk.Menu(menubar, tearoff=0)
+        help_menu = tk.Menu(self.menubar, tearoff=0)
         help_menu.add_command(label="操作说明", command=lambda: messagebox.showinfo(
             "操作说明", 
             f"- 按 下一张 ({self.hotkey_next.upper()}): 翻到下一张图片\n"
@@ -139,11 +140,11 @@ class ImageViewer:
         ))
         help_menu.add_separator()
         help_menu.add_command(label="关于", command=lambda: messagebox.showinfo(
-            "关于", "🐦 Water-redstart: the chirping viewer\n\n版本：2.2 (双平台)\n作者：Crowpaw@2026\n鸣谢：ARC, Untribiium, ~ris, 蓝嘴红鹊, 欧鹭风云, 瑞瑞, Gemini 3.1 Pro\n于一"
+            "关于", "🐦 Water-redstart: the chirping viewer\n\n版本：2.3 (双平台)\n作者：Crowpaw@2026\n鸣谢：ARC, Untribiium, ~ris, 蓝嘴红鹊, 欧鹭风云, 瑞瑞的, Gemini 3.1 Pro\n于一"
         ))
-        menubar.add_cascade(label="帮助", menu=help_menu)
+        self.menubar.add_cascade(label="帮助", menu=help_menu)
         
-        self.root.config(menu=menubar)
+        self.root.config(menu=self.menubar)
 
     def apply_bindings(self):
         # 解绑旧的热键
@@ -191,18 +192,18 @@ class ImageViewer:
         select_count = self.get_select_count()
         if self.images and self.index < len(self.images):
             img_name = self.images[self.index]
-            self.root.title(f"🐦 Water-redstart: the chirping viewer v2.2 | 进度: {self.index + 1}/{len(self.images)} | 📁已选: {select_count} | 当前: {img_name}")
+            self.root.title(f"🐦 Water-redstart: the chirping viewer v2.3 | 进度: {self.index + 1}/{len(self.images)} | 📁已选: {select_count} | 当前: {img_name}")
             self.top_info_label.config(
                 text=f"🐾 进度：{self.index + 1} / {len(self.images)} 📷 【{img_name}】 | 🌲 已挑出: {select_count}只 | 🕊️ 跳过: '{self.hotkey_next.upper()}'  💖 挑出: '{self.hotkey_copy.upper()}'  ⏪ 撤销: '{self.hotkey_undo.upper()}'  📋 剪贴: '{self.hotkey_clip.upper()}'"
             )
         else:
-            self.root.title(f"🐦 Water-redstart: the chirping viewer v2.2")
+            self.root.title(f"🐦 Water-redstart: the chirping viewer v2.3")
             self.top_info_label.config(text=f"🌲 已挑出: {select_count}只 | 🕊️ 跳过: '{self.hotkey_next.upper()}' | 💖 挑出: '{self.hotkey_copy.upper()}' | ⏪ 撤销: '{self.hotkey_undo.upper()}' | 📋 剪贴: '{self.hotkey_clip.upper()}'")
 
     def show_hotkey_dialog(self):
         dialog = tk.Toplevel(self.root)
         dialog.title("🎈 自定义魔法设置 🎈")
-        dialog.geometry("450x420")
+        dialog.geometry("450x460")
         dialog.configure(bg="#FFECD2")
         dialog.transient(self.root)  # 置于主窗口之上
         dialog.grab_set()  # 模态对话框
@@ -215,6 +216,7 @@ class ImageViewer:
         dialog.temp_undo = self.hotkey_undo
         dialog.temp_clip = self.hotkey_clip
         dialog.temp_color = self.ui_bg_color
+        dialog.temp_keep_top_bar = tk.BooleanVar(value=self.keep_top_bar_in_fullscreen)
 
         def prompt_key(btn, attr_name):
             prompt = tk.Toplevel(dialog)
@@ -268,6 +270,10 @@ class ImageViewer:
         scale_size.set(self.ui_font_size)
         scale_size.grid(row=7, column=1, sticky="w")
         
+        tk.Label(dialog, text="📺 全屏选项:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=8, column=0, padx=20, pady=5, sticky="e")
+        chk_top_bar = tk.Checkbutton(dialog, text="全屏时保留上方菜单栏", variable=dialog.temp_keep_top_bar, bg="#FFECD2", font=("Microsoft YaHei", 10))
+        chk_top_bar.grid(row=8, column=1, sticky="w")
+        
         def save():
             new_folder = entry_folder.get().strip()
             
@@ -283,6 +289,7 @@ class ImageViewer:
             self.hotkey_undo = dialog.temp_undo
             self.hotkey_clip = dialog.temp_clip
             self.select_folder_name = new_folder
+            self.keep_top_bar_in_fullscreen = dialog.temp_keep_top_bar.get()
             
             # Update UI Style
             self.ui_bg_color = dialog.temp_color
@@ -293,11 +300,22 @@ class ImageViewer:
             # 重新生成菜单（更新帮助说明里的热键显示）
             self.create_menu()
             self.apply_bindings()
+            
+            # Apply fullscreen changes if currently in fullscreen
+            if self.is_fullscreen:
+                if not self.keep_top_bar_in_fullscreen:
+                    self.root.config(menu="")
+                    self.top_frame.pack_forget()
+                else:
+                    self.root.config(menu=self.menubar)
+                    self.top_frame.pack(fill=tk.X, before=self.img_frame)
+
+            self.save_config()
             messagebox.showinfo("成功啦", "小魔法重新生效啦！✨", parent=dialog)
             dialog.destroy()
             
         btn_save = tk.Button(dialog, text="🎀 保存设置", command=save, width=20, font=("Microsoft YaHei", 11, "bold"), bg="#FFB6C1", fg="white", activebackground="#FF69B4", bd=0, cursor="hand2")
-        btn_save.grid(row=8, column=0, columnspan=2, pady=20)
+        btn_save.grid(row=9, column=0, columnspan=2, pady=20)
 
     def load_config(self):
         if os.path.exists(self.config_file):
@@ -307,6 +325,7 @@ class ImageViewer:
                     last_img = config.get("last_image")
                     if last_img and last_img in self.images:
                         self.index = self.images.index(last_img)
+                    self.keep_top_bar_in_fullscreen = config.get("keep_top_bar_in_fullscreen", False)
             except Exception:
                 pass
 
@@ -314,7 +333,10 @@ class ImageViewer:
         if self.images and self.index < len(self.images):
             try:
                 with open(self.config_file, 'w', encoding='utf-8') as f:
-                    json.dump({"last_image": self.images[self.index]}, f)
+                    json.dump({
+                        "last_image": self.images[self.index],
+                        "keep_top_bar_in_fullscreen": getattr(self, 'keep_top_bar_in_fullscreen', False)
+                    }, f)
             except Exception:
                 pass
 
@@ -704,11 +726,19 @@ class ImageViewer:
     def toggle_fullscreen(self, event=None):
         self.is_fullscreen = not self.is_fullscreen
         self.root.attributes("-fullscreen", self.is_fullscreen)
+        if self.is_fullscreen and not getattr(self, 'keep_top_bar_in_fullscreen', False):
+            self.root.config(menu="")
+            self.top_frame.pack_forget()
+        else:
+            self.root.config(menu=getattr(self, 'menubar', ""))
+            self.top_frame.pack(fill=tk.X, before=self.img_frame)
         return "break"
 
     def exit_fullscreen(self, event=None):
         self.is_fullscreen = False
         self.root.attributes("-fullscreen", False)
+        self.root.config(menu=getattr(self, 'menubar', ""))
+        self.top_frame.pack(fill=tk.X, before=self.img_frame)
         return "break"
 
 if __name__ == "__main__":
