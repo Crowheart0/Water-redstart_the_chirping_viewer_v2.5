@@ -16,7 +16,7 @@ import rawpy
 class ImageViewer:
     def __init__(self, root):
         self.root = root
-        self.root.title("🐦 Water-redstart: the chirping viewer v2.3 (双平台)")
+        self.root.title("🐦 Water-redstart: the chirping viewer v2.4 (双平台)")
         # 初始窗口大小
         self.root.geometry("900x700")
 
@@ -109,9 +109,77 @@ class ImageViewer:
 
         # 延迟100ms加载第一张图片，等待窗口初始化完成
         self.root.after(100, self.load_image)
+        # 延迟200ms切换为英文输入法，防止中文输入法吞掉快捷键
+        self.root.after(200, self.switch_to_english_ime)
+
+    def switch_to_english_ime(self):
+        if sys.platform == 'win32':
+            try:
+                import ctypes
+                # 获取 tkinter 真实窗口句柄而不是系统前台窗口
+                hwnd = self.root.winfo_id()
+                # 加载美式英语键盘布局 (00000409)
+                hkl = ctypes.windll.user32.LoadKeyboardLayoutW("00000409", 1)
+                # 取消 IME 的关联，防止中文输入法拦截按键
+                ctypes.windll.imm32.ImmAssociateContext(hwnd, 0)
+                # 发送切换输入法消息
+                ctypes.windll.user32.SendMessageW(hwnd, 0x0050, 0, hkl)
+            except Exception as e:
+                print(f"切换输入法失败: {e}")
+
+    def open_folder(self):
+        from tkinter import filedialog
+        folder_selected = filedialog.askdirectory(title="选择包含照片的文件夹")
+        if folder_selected:
+            # 清理当前资源
+            self.current_img_obj = None
+            self.tk_image = None
+            self.images = []
+            self.image_cache = {}
+            if self.canvas and hasattr(self, 'image_on_canvas') and self.image_on_canvas:
+                self.canvas.delete(self.image_on_canvas)
+                
+            self.current_dir = folder_selected
+            self.config_file = os.path.join(self.current_dir, ".birdviewer_config.json")
+            
+            # 重新获取图片
+            self.images = [
+                f for f in os.listdir(self.current_dir)
+                if os.path.isfile(os.path.join(self.current_dir, f)) and f.lower().endswith(self.supported_formats)
+            ]
+            self.images.sort()
+            
+            self.index = 0
+            self.history = []
+            
+            # 读取上一次的进度配置
+            self.load_config()
+            
+            if self.images:
+                self.progress_scale.config(to=len(self.images)-1)
+                self.progress_scale.set(self.index)
+            else:
+                self.progress_scale.config(to=0)
+                self.progress_scale.set(0)
+                self.top_info_label.config(text="📂 当前文件夹没有找到支持的照片...")
+                
+            if self.reverse_var.get():
+                self.images.reverse()
+                self.index = len(self.images) - 1 - self.index
+                self.progress_scale.set(self.index)
+                
+            self.update_title()
+            self.load_image()
 
     def create_menu(self):
         self.menubar = tk.Menu(self.root)
+        
+        # 文件菜单
+        file_menu = tk.Menu(self.menubar, tearoff=0)
+        file_menu.add_command(label="打开照片文件夹...", command=self.open_folder)
+        file_menu.add_separator()
+        file_menu.add_command(label="退出", command=self.root.quit)
+        self.menubar.add_cascade(label="文件", menu=file_menu)
         
         # 设置菜单
         settings_menu = tk.Menu(self.menubar, tearoff=0)
@@ -140,7 +208,7 @@ class ImageViewer:
         ))
         help_menu.add_separator()
         help_menu.add_command(label="关于", command=lambda: messagebox.showinfo(
-            "关于", "🐦 Water-redstart: the chirping viewer\n\n版本：2.3 (双平台)\n作者：Crowpaw@2026\n鸣谢：ARC, Untribiium, ~ris, 蓝嘴红鹊, 欧鹭风云, 瑞瑞的, Gemini 3.1 Pro\n于一"
+            "关于", "🐦 Water-redstart: the chirping viewer\n\n版本：2.4 (双平台)\n作者：Crowpaw@2026\n鸣谢：ARC, Untribiium, ~ris, 蓝嘴红鹊, 欧鹭风云, 瑞瑞的, 白鹡鸰, 灰喜鹊, 碳酸, Gemini 3.1 Pro\n于一"
         ))
         self.menubar.add_cascade(label="帮助", menu=help_menu)
         
@@ -343,7 +411,7 @@ class ImageViewer:
     def read_image_fast(self, img_path):
         """支持RAW格式和普通图片的快速读取"""
         ext = os.path.splitext(img_path)[1].lower()
-        target_size = (3000, 3000)
+        target_size = (6000, 6000)
         try:
             if ext in ('.arw', '.cr2', '.cr3', '.nef', '.dng', '.orf', '.naw', '.nrw'):
                 # 对于RAW照片，使用rawpy提取内嵌的预览图（通常是jpeg格式），速度极快数百倍
@@ -354,21 +422,21 @@ class ImageViewer:
                         # 没有缩略图则执行完整的后处理渲染，但对性能极不友好
                         rgb = raw.postprocess(half_size=True, use_camera_wb=True)
                         img = Image.fromarray(rgb)
-                        img.thumbnail(target_size, Image.Resampling.NEAREST)
+                        img.thumbnail(target_size, Image.Resampling.LANCZOS)
                         return ImageOps.exif_transpose(img)
                         
                 if thumb.format in (rawpy.ThumbFormat.JPEG, rawpy.ThumbFormat.BITMAP):
                     img = Image.open(io.BytesIO(thumb.data))
                     img.draft("RGB", target_size) # 极致加速：利用libjpeg在解码时就降采样
                     img = ImageOps.exif_transpose(img)
-                    img.thumbnail(target_size, Image.Resampling.NEAREST)
+                    img.thumbnail(target_size, Image.Resampling.LANCZOS)
                     return img
             
             # 普通照片读取
             img = Image.open(img_path)
             img.draft("RGB", target_size) # 极致加速普通巨型JPG解码
             img = ImageOps.exif_transpose(img)
-            img.thumbnail(target_size, Image.Resampling.NEAREST)
+            img.thumbnail(target_size, Image.Resampling.LANCZOS)
             return img
         except Exception as e:
             print(f"解析图片加速失败 {img_path}: {e}")
@@ -493,9 +561,16 @@ class ImageViewer:
         self.save_config()
         # 检查有没有图片
         if not self.images:
-            messagebox.showinfo("提示", "当前文件夹没有找到支持的图片！")
+            if not getattr(self, 'prompted_for_folder', False):
+                self.prompted_for_folder = True
+                if messagebox.askyesno("提示", "当前目录为空，没有找到支持的照片！\n是否手动选择一个包含照片的文件夹？"):
+                    self.open_folder()
+                    return
+            messagebox.showinfo("提示", "未找到可显示的照片，即将退出程序哦！")
             self.root.destroy()
             return
+            
+        self.prompted_for_folder = False
 
         # 检查是否看到最后一张了
         if self.index >= len(self.images):
@@ -743,5 +818,44 @@ class ImageViewer:
 
 if __name__ == "__main__":
     root = tk.Tk()
-    app = ImageViewer(root)
+    root.withdraw() # 隐藏主窗口
+    
+    import os
+    icon_path = 'bird.ico'
+    if hasattr(sys, '_MEIPASS'):
+        # PyInstaller 运行时提取路径
+        icon_path = os.path.join(sys._MEIPASS, 'bird.ico')
+    elif os.path.exists('bird.ico'):
+        icon_path = 'bird.ico'
+        
+    # 显示干净的 loading 弹窗
+    splash = tk.Toplevel(root)
+    splash.overrideredirect(True) # 去除边框
+    splash_w, splash_h = 240, 160
+    screen_w = root.winfo_screenwidth()
+    screen_h = root.winfo_screenheight()
+    splash.geometry(f"{splash_w}x{splash_h}+{int((screen_w-splash_w)/2)}+{int((screen_h-splash_h)/2)}")
+    splash.configure(bg="#E8F5E9")
+
+    try:
+        if os.path.exists(icon_path):
+            root.iconbitmap(icon_path)
+            from PIL import Image, ImageTk
+            img = Image.open(icon_path).resize((64, 64), Image.Resampling.LANCZOS)
+            tk_img = ImageTk.PhotoImage(img) # 保留引用
+            tk.Label(splash, image=tk_img, bg="#E8F5E9").pack(pady=(20, 10))
+    except Exception:
+        pass
+
+    tk.Label(splash, text="LOADING...", font=("Microsoft YaHei", 12, "bold"), bg="#E8F5E9", fg="#2E7D32").pack(pady=5)
+    
+    splash.update() # 渲染 loading 界面
+
+    # 在后台短暂延迟后开始主程序初始化并销毁闪屏
+    def init_app():
+        app = ImageViewer(root)
+        splash.destroy()
+        root.deiconify() # 显示出真正的应用窗口
+        
+    root.after(100, init_app)
     root.mainloop()
