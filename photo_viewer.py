@@ -16,7 +16,7 @@ import rawpy
 class ImageViewer:
     def __init__(self, root):
         self.root = root
-        self.root.title("🐦 Water-redstart: the chirping viewer v2.4 (双平台)")
+        self.root.title("🐦 Water-redstart: the chirping viewer v2.5 (双平台)")
         # 初始窗口大小
         self.root.geometry("900x700")
 
@@ -50,6 +50,7 @@ class ImageViewer:
         
         # 尝试读取上一次的进度配置
         self.config_file = os.path.join(self.current_dir, ".birdviewer_config.json")
+        self.image_quality = tk.IntVar(value=8000)
         self.load_config()
         
         # 添加一个顶部控制面板背景 (缩小高度)
@@ -190,6 +191,12 @@ class ImageViewer:
         self.low_memory_mode = tk.BooleanVar(value=False)
         settings_menu.add_checkbutton(label="省内存模式 (预加载20张)", variable=self.low_memory_mode)
         
+        quality_menu = tk.Menu(settings_menu, tearoff=0)
+        quality_menu.add_radiobutton(label="2K (运行快，省内存)", variable=self.image_quality, value=2000, command=self.change_quality)
+        quality_menu.add_radiobutton(label="4K (平衡)", variable=self.image_quality, value=4000, command=self.change_quality)
+        quality_menu.add_radiobutton(label="8K (默认，最高清)", variable=self.image_quality, value=8000, command=self.change_quality)
+        settings_menu.add_cascade(label="照片显示画质", menu=quality_menu)
+        
         settings_menu.add_separator()
         
         settings_menu.add_command(label="修改操作热键与文件夹...", command=self.show_hotkey_dialog)
@@ -208,7 +215,7 @@ class ImageViewer:
         ))
         help_menu.add_separator()
         help_menu.add_command(label="关于", command=lambda: messagebox.showinfo(
-            "关于", "🐦 Water-redstart: the chirping viewer\n\n版本：2.4 (双平台)\n作者：Crowpaw@2026\n鸣谢：ARC, Untribiium, ~ris, 蓝嘴红鹊, 欧鹭风云, 瑞瑞的, 白鹡鸰, 灰喜鹊, 碳酸, Gemini 3.1 Pro\n于一"
+            "关于", "🐦 Water-redstart: the chirping viewer\n\n版本：2.5 (双平台)\n作者：Crowpaw@2026\n鸣谢：ARC, Untribiium, ~ris, 蓝嘴红鹊, 欧鹭风云, 瑞瑞的, 白鹡鸰, 灰喜鹊, 碳酸, Gemini 3.1 Pro\n于一"
         ))
         self.menubar.add_cascade(label="帮助", menu=help_menu)
         
@@ -246,6 +253,11 @@ class ImageViewer:
         self.progress_scale.set(self.index)
         self.load_image()
 
+    def change_quality(self):
+        self.image_cache.clear()
+        self.save_config()
+        self.load_image()
+
     def get_select_count(self):
         select_folder_path = os.path.join(self.current_dir, self.select_folder_name)
         if not os.path.exists(select_folder_path):
@@ -260,12 +272,12 @@ class ImageViewer:
         select_count = self.get_select_count()
         if self.images and self.index < len(self.images):
             img_name = self.images[self.index]
-            self.root.title(f"🐦 Water-redstart: the chirping viewer v2.3 | 进度: {self.index + 1}/{len(self.images)} | 📁已选: {select_count} | 当前: {img_name}")
+            self.root.title(f"🐦 Water-redstart: the chirping viewer v2.5 | 进度: {self.index + 1}/{len(self.images)} | 📁已选: {select_count} | 当前: {img_name}")
             self.top_info_label.config(
                 text=f"🐾 进度：{self.index + 1} / {len(self.images)} 📷 【{img_name}】 | 🌲 已挑出: {select_count}只 | 🕊️ 跳过: '{self.hotkey_next.upper()}'  💖 挑出: '{self.hotkey_copy.upper()}'  ⏪ 撤销: '{self.hotkey_undo.upper()}'  📋 剪贴: '{self.hotkey_clip.upper()}'"
             )
         else:
-            self.root.title(f"🐦 Water-redstart: the chirping viewer v2.3")
+            self.root.title(f"🐦 Water-redstart: the chirping viewer v2.5")
             self.top_info_label.config(text=f"🌲 已挑出: {select_count}只 | 🕊️ 跳过: '{self.hotkey_next.upper()}' | 💖 挑出: '{self.hotkey_copy.upper()}' | ⏪ 撤销: '{self.hotkey_undo.upper()}' | 📋 剪贴: '{self.hotkey_clip.upper()}'")
 
     def show_hotkey_dialog(self):
@@ -394,6 +406,7 @@ class ImageViewer:
                     if last_img and last_img in self.images:
                         self.index = self.images.index(last_img)
                     self.keep_top_bar_in_fullscreen = config.get("keep_top_bar_in_fullscreen", False)
+                    self.image_quality.set(config.get("image_quality", 8000))
             except Exception:
                 pass
 
@@ -403,7 +416,8 @@ class ImageViewer:
                 with open(self.config_file, 'w', encoding='utf-8') as f:
                     json.dump({
                         "last_image": self.images[self.index],
-                        "keep_top_bar_in_fullscreen": getattr(self, 'keep_top_bar_in_fullscreen', False)
+                        "keep_top_bar_in_fullscreen": getattr(self, 'keep_top_bar_in_fullscreen', False),
+                        "image_quality": self.image_quality.get()
                     }, f)
             except Exception:
                 pass
@@ -411,7 +425,8 @@ class ImageViewer:
     def read_image_fast(self, img_path):
         """支持RAW格式和普通图片的快速读取"""
         ext = os.path.splitext(img_path)[1].lower()
-        target_size = (6000, 6000)
+        size_val = getattr(self, 'image_quality', tk.IntVar(value=8000)).get()
+        target_size = (size_val, size_val)
         try:
             if ext in ('.arw', '.cr2', '.cr3', '.nef', '.dng', '.orf', '.naw', '.nrw'):
                 # 对于RAW照片，使用rawpy提取内嵌的预览图（通常是jpeg格式），速度极快数百倍
