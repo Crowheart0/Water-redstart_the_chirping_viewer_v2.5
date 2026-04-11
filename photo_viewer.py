@@ -16,7 +16,7 @@ import rawpy
 class ImageViewer:
     def __init__(self, root):
         self.root = root
-        self.root.title("🐦 Water-redstart: the chirping viewer v2.5 (双平台)")
+        self.root.title("🐦 Water-redstart: the chirping viewer v2.6 (双平台)")
         # 初始窗口大小
         self.root.geometry("900x700")
 
@@ -89,10 +89,19 @@ class ImageViewer:
         self.hotkey_copy = 'w'
         self.hotkey_undo = 'a'
         self.hotkey_clip = 's'
+        self.hotkey_arrow_left = 'Left'
+        self.hotkey_arrow_right = 'Right'
+        self.hotkey_arrow_up = 'Up'
+        self.hotkey_arrow_down = 'Down'
+        
         self._current_bind_next = None
         self._current_bind_copy = None
         self._current_bind_undo = None
         self._current_bind_clip = None
+        self._current_bind_arrow_left = None
+        self._current_bind_arrow_right = None
+        self._current_bind_arrow_up = None
+        self._current_bind_arrow_down = None
 
         self.create_menu()
         self.apply_bindings()
@@ -215,7 +224,7 @@ class ImageViewer:
         ))
         help_menu.add_separator()
         help_menu.add_command(label="关于", command=lambda: messagebox.showinfo(
-            "关于", "🐦 Water-redstart: the chirping viewer\n\n版本：2.5 (双平台)\n作者：Crowpaw@2026\n鸣谢：ARC, Untribiium, ~ris, 蓝嘴红鹊, 欧鹭风云, 瑞瑞的, 白鹡鸰, 灰喜鹊, 碳酸, Gemini 3.1 Pro\n于一"
+            "关于", "🐦 Water-redstart: the chirping viewer\n\n版本：2.6 (双平台)\n作者：Crowpaw@2026\n鸣谢：ARC, Untribiium, ~ris, 蓝嘴红鹊, 欧鹭风云, 瑞瑞的, 白鹡鸰, 灰喜鹊, 碳酸, Gemini 3.1 Pro\n于一"
         ))
         self.menubar.add_cascade(label="帮助", menu=help_menu)
         
@@ -223,7 +232,8 @@ class ImageViewer:
 
     def apply_bindings(self):
         # 解绑旧的热键
-        for attr in ['_current_bind_next', '_current_bind_copy', '_current_bind_undo', '_current_bind_clip']:
+        for attr in ['_current_bind_next', '_current_bind_copy', '_current_bind_undo', '_current_bind_clip',
+                     '_current_bind_arrow_left', '_current_bind_arrow_right', '_current_bind_arrow_up', '_current_bind_arrow_down']:
             old_sym = getattr(self, attr, None)
             if old_sym:
                 try:
@@ -237,10 +247,19 @@ class ImageViewer:
         self.root.bind(f"<{self.hotkey_undo}>", self.undo_action)
         self.root.bind(f"<{self.hotkey_clip}>", self.copy_to_os_clipboard)
         
+        self.root.bind(f"<{self.hotkey_arrow_left}>", self.prev_image)
+        self.root.bind(f"<{self.hotkey_arrow_right}>", self.next_image)
+        self.root.bind(f"<{self.hotkey_arrow_up}>", self.copy_and_next)
+        self.root.bind(f"<{self.hotkey_arrow_down}>", self.copy_to_os_clipboard)
+        
         self._current_bind_next = self.hotkey_next
         self._current_bind_copy = self.hotkey_copy
         self._current_bind_undo = self.hotkey_undo
         self._current_bind_clip = self.hotkey_clip
+        self._current_bind_arrow_left = self.hotkey_arrow_left
+        self._current_bind_arrow_right = self.hotkey_arrow_right
+        self._current_bind_arrow_up = self.hotkey_arrow_up
+        self._current_bind_arrow_down = self.hotkey_arrow_down
 
         self.update_title()
 
@@ -272,18 +291,18 @@ class ImageViewer:
         select_count = self.get_select_count()
         if self.images and self.index < len(self.images):
             img_name = self.images[self.index]
-            self.root.title(f"🐦 Water-redstart: the chirping viewer v2.5 | 进度: {self.index + 1}/{len(self.images)} | 📁已选: {select_count} | 当前: {img_name}")
+            self.root.title(f"🐦 Water-redstart: the chirping viewer v2.6 | 进度: {self.index + 1}/{len(self.images)} | 📁已选: {select_count} | 当前: {img_name}")
             self.top_info_label.config(
                 text=f"🐾 进度：{self.index + 1} / {len(self.images)} 📷 【{img_name}】 | 🌲 已挑出: {select_count}只 | 🕊️ 跳过: '{self.hotkey_next.upper()}'  💖 挑出: '{self.hotkey_copy.upper()}'  ⏪ 撤销: '{self.hotkey_undo.upper()}'  📋 剪贴: '{self.hotkey_clip.upper()}'"
             )
         else:
-            self.root.title(f"🐦 Water-redstart: the chirping viewer v2.5")
+            self.root.title(f"🐦 Water-redstart: the chirping viewer v2.6")
             self.top_info_label.config(text=f"🌲 已挑出: {select_count}只 | 🕊️ 跳过: '{self.hotkey_next.upper()}' | 💖 挑出: '{self.hotkey_copy.upper()}' | ⏪ 撤销: '{self.hotkey_undo.upper()}' | 📋 剪贴: '{self.hotkey_clip.upper()}'")
 
     def show_hotkey_dialog(self):
         dialog = tk.Toplevel(self.root)
         dialog.title("🎈 自定义魔法设置 🎈")
-        dialog.geometry("450x460")
+        dialog.geometry("450x620")
         dialog.configure(bg="#FFECD2")
         dialog.transient(self.root)  # 置于主窗口之上
         dialog.grab_set()  # 模态对话框
@@ -295,6 +314,10 @@ class ImageViewer:
         dialog.temp_copy = self.hotkey_copy
         dialog.temp_undo = self.hotkey_undo
         dialog.temp_clip = self.hotkey_clip
+        dialog.temp_arrow_left = getattr(self, 'hotkey_arrow_left', 'Left')
+        dialog.temp_arrow_right = getattr(self, 'hotkey_arrow_right', 'Right')
+        dialog.temp_arrow_up = getattr(self, 'hotkey_arrow_up', 'Up')
+        dialog.temp_arrow_down = getattr(self, 'hotkey_arrow_down', 'Down')
         dialog.temp_color = self.ui_bg_color
         dialog.temp_keep_top_bar = tk.BooleanVar(value=self.keep_top_bar_in_fullscreen)
 
@@ -330,10 +353,42 @@ class ImageViewer:
         btn_clip = tk.Button(dialog, text=f"[{self.hotkey_clip}] (点击修改)", width=18, bg="#FFFFFF", command=lambda: prompt_key(btn_clip, 'temp_clip'))
         btn_clip.grid(row=4, column=1, sticky="w")
         
-        tk.Label(dialog, text="📁 挑出文件夹名:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=5, column=0, padx=20, pady=5, sticky="e")
+        tk.Label(dialog, text="⬅️ 返回上张键:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=5, column=0, padx=20, pady=5, sticky="e")
+        btn_arrow_left = tk.Button(dialog, text=f"[{getattr(self, 'hotkey_arrow_left', 'Left')}] (点击修改)", width=18, bg="#FFFFFF", command=lambda: prompt_key(btn_arrow_left, 'temp_arrow_left'))
+        btn_arrow_left.grid(row=5, column=1, sticky="w")
+
+        tk.Label(dialog, text="➡️ 快进下张键:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=6, column=0, padx=20, pady=5, sticky="e")
+        btn_arrow_right = tk.Button(dialog, text=f"[{getattr(self, 'hotkey_arrow_right', 'Right')}] (点击修改)", width=18, bg="#FFFFFF", command=lambda: prompt_key(btn_arrow_right, 'temp_arrow_right'))
+        btn_arrow_right.grid(row=6, column=1, sticky="w")
+
+        tk.Label(dialog, text="⬆️ 挑出热键2:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=7, column=0, padx=20, pady=5, sticky="e")
+        btn_arrow_up = tk.Button(dialog, text=f"[{getattr(self, 'hotkey_arrow_up', 'Up')}] (点击修改)", width=18, bg="#FFFFFF", command=lambda: prompt_key(btn_arrow_up, 'temp_arrow_up'))
+        btn_arrow_up.grid(row=7, column=1, sticky="w")
+
+        tk.Label(dialog, text="⬇️ 剪贴板热键2:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=8, column=0, padx=20, pady=5, sticky="e")
+        btn_arrow_down = tk.Button(dialog, text=f"[{getattr(self, 'hotkey_arrow_down', 'Down')}] (点击修改)", width=18, bg="#FFFFFF", command=lambda: prompt_key(btn_arrow_down, 'temp_arrow_down'))
+        btn_arrow_down.grid(row=8, column=1, sticky="w")
+
+        tk.Label(dialog, text="📁 挑出文件夹名:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=9, column=0, padx=20, pady=5, sticky="e")
         entry_folder = tk.Entry(dialog, width=20, font=("Arial", 11), justify="center", bd=2, relief=tk.SUNKEN)
         entry_folder.insert(0, self.select_folder_name)
-        entry_folder.grid(row=5, column=1, sticky="w")
+        entry_folder.grid(row=9, column=1, sticky="w")
+        tk.Label(dialog, text="➡️ 快进下张键:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=6, column=0, padx=20, pady=5, sticky="e")
+        btn_arrow_right = tk.Button(dialog, text=f"[{getattr(self, 'hotkey_arrow_right', 'Right')}] (点击修改)", width=18, bg="#FFFFFF", command=lambda: prompt_key(btn_arrow_right, 'temp_arrow_right'))
+        btn_arrow_right.grid(row=6, column=1, sticky="w")
+
+        tk.Label(dialog, text="⬆️ 挑出热键2:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=7, column=0, padx=20, pady=5, sticky="e")
+        btn_arrow_up = tk.Button(dialog, text=f"[{getattr(self, 'hotkey_arrow_up', 'Up')}] (点击修改)", width=18, bg="#FFFFFF", command=lambda: prompt_key(btn_arrow_up, 'temp_arrow_up'))
+        btn_arrow_up.grid(row=7, column=1, sticky="w")
+
+        tk.Label(dialog, text="⬇️ 剪贴板热键2:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=8, column=0, padx=20, pady=5, sticky="e")
+        btn_arrow_down = tk.Button(dialog, text=f"[{getattr(self, 'hotkey_arrow_down', 'Down')}] (点击修改)", width=18, bg="#FFFFFF", command=lambda: prompt_key(btn_arrow_down, 'temp_arrow_down'))
+        btn_arrow_down.grid(row=8, column=1, sticky="w")
+
+        tk.Label(dialog, text="📁 挑出文件夹名:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=9, column=0, padx=20, pady=5, sticky="e")
+        entry_folder = tk.Entry(dialog, width=20, font=("Arial", 11), justify="center", bd=2, relief=tk.SUNKEN)
+        entry_folder.insert(0, self.select_folder_name)
+        entry_folder.grid(row=9, column=1, sticky="w")
 
         def choose_color():
             c = colorchooser.askcolor(title="选择顶部UI背景颜色", initialcolor=self.ui_bg_color)
@@ -341,18 +396,18 @@ class ImageViewer:
                 dialog.temp_color = c[1]
                 btn_color.config(bg=c[1])
 
-        tk.Label(dialog, text="🎨 顶部横幅颜色:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=6, column=0, padx=20, pady=5, sticky="e")
+        tk.Label(dialog, text="🎨 顶部横幅颜色:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=10, column=0, padx=20, pady=5, sticky="e")
         btn_color = tk.Button(dialog, text=" 选择颜色 ", width=18, bg=self.ui_bg_color, command=choose_color)
-        btn_color.grid(row=6, column=1, sticky="w")
+        btn_color.grid(row=10, column=1, sticky="w")
 
-        tk.Label(dialog, text="🔠 顶部文字大小:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=7, column=0, padx=20, pady=5, sticky="e")
+        tk.Label(dialog, text="🔠 顶部文字大小:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=11, column=0, padx=20, pady=5, sticky="e")
         scale_size = tk.Scale(dialog, from_=6, to=24, orient=tk.HORIZONTAL, bg="#FFECD2", highlightthickness=0, length=140)
         scale_size.set(self.ui_font_size)
-        scale_size.grid(row=7, column=1, sticky="w")
+        scale_size.grid(row=11, column=1, sticky="w")
         
-        tk.Label(dialog, text="📺 全屏选项:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=8, column=0, padx=20, pady=5, sticky="e")
+        tk.Label(dialog, text="📺 全屏选项:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=12, column=0, padx=20, pady=5, sticky="e")
         chk_top_bar = tk.Checkbutton(dialog, text="全屏时保留上方菜单栏", variable=dialog.temp_keep_top_bar, bg="#FFECD2", font=("Microsoft YaHei", 10))
-        chk_top_bar.grid(row=8, column=1, sticky="w")
+        chk_top_bar.grid(row=12, column=1, sticky="w")
         
         def save():
             new_folder = entry_folder.get().strip()
@@ -363,11 +418,18 @@ class ImageViewer:
             if len(set([dialog.temp_next, dialog.temp_copy, dialog.temp_undo, dialog.temp_clip])) < 4:
                 messagebox.showwarning("哎呀", "不同功能的热键不能重复！", parent=dialog)
                 return
+            if len(set([dialog.temp_arrow_left, dialog.temp_arrow_right, dialog.temp_arrow_up, dialog.temp_arrow_down])) < 4:
+                messagebox.showwarning("哎呀", "方向动作热键不能互相重复！", parent=dialog)
+                return
                 
             self.hotkey_next = dialog.temp_next
             self.hotkey_copy = dialog.temp_copy
             self.hotkey_undo = dialog.temp_undo
             self.hotkey_clip = dialog.temp_clip
+            self.hotkey_arrow_left = dialog.temp_arrow_left
+            self.hotkey_arrow_right = dialog.temp_arrow_right
+            self.hotkey_arrow_up = dialog.temp_arrow_up
+            self.hotkey_arrow_down = dialog.temp_arrow_down
             self.select_folder_name = new_folder
             self.keep_top_bar_in_fullscreen = dialog.temp_keep_top_bar.get()
             
@@ -395,7 +457,7 @@ class ImageViewer:
             dialog.destroy()
             
         btn_save = tk.Button(dialog, text="🎀 保存设置", command=save, width=20, font=("Microsoft YaHei", 11, "bold"), bg="#FFB6C1", fg="white", activebackground="#FF69B4", bd=0, cursor="hand2")
-        btn_save.grid(row=9, column=0, columnspan=2, pady=20)
+        btn_save.grid(row=13, column=0, columnspan=2, pady=20)
 
     def load_config(self):
         if os.path.exists(self.config_file):
@@ -723,6 +785,11 @@ class ImageViewer:
             self.history.append({'action': 'next', 'index': self.index})
         self.index += 1
         self.load_image()
+
+    def prev_image(self, event=None):
+        if self.index > 0:
+            self.index -= 1
+            self.load_image()
 
     def copy_and_next(self, event=None):
         if self.index < len(self.images):
