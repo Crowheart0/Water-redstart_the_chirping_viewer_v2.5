@@ -32,7 +32,7 @@ class ImageViewer:
         self.keep_top_bar_in_fullscreen = False
 
         # 获取当前文件夹下所有图片（屏蔽子目录）
-        self.supported_formats = ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.arw', '.cr2', '.cr3', '.nef', '.dng', '.orf', '.naw', '.nrw')
+        self.supported_formats = ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.arw', '.sr2', '.srf', '.crw', '.cr2', '.cr3', '.nef', '.nrw', '.dng', '.orf', '.rw2', '.raf', '.pef')
         self.current_dir = os.getcwd()
         self.images = [
             f for f in os.listdir(self.current_dir)
@@ -278,7 +278,7 @@ class ImageViewer:
         self.load_image()
 
     def get_select_count(self):
-        select_folder_path = os.path.join(self.current_dir, self.select_folder_name)
+        select_folder_path = self.select_folder_name if os.path.isabs(self.select_folder_name) else os.path.join(self.current_dir, self.select_folder_name)
         if not os.path.exists(select_folder_path):
             return 0
         try:
@@ -370,25 +370,23 @@ class ImageViewer:
         btn_arrow_down.grid(row=8, column=1, sticky="w")
 
         tk.Label(dialog, text="📁 挑出文件夹名:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=9, column=0, padx=20, pady=5, sticky="e")
-        entry_folder = tk.Entry(dialog, width=20, font=("Arial", 11), justify="center", bd=2, relief=tk.SUNKEN)
+        
+        folder_frame = tk.Frame(dialog, bg="#FFECD2")
+        folder_frame.grid(row=9, column=1, sticky="w")
+        
+        entry_folder = tk.Entry(folder_frame, width=15, font=("Arial", 11), justify="center", bd=2, relief=tk.SUNKEN)
         entry_folder.insert(0, self.select_folder_name)
-        entry_folder.grid(row=9, column=1, sticky="w")
-        tk.Label(dialog, text="➡️ 快进下张键:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=6, column=0, padx=20, pady=5, sticky="e")
-        btn_arrow_right = tk.Button(dialog, text=f"[{getattr(self, 'hotkey_arrow_right', 'Right')}] (点击修改)", width=18, bg="#FFFFFF", command=lambda: prompt_key(btn_arrow_right, 'temp_arrow_right'))
-        btn_arrow_right.grid(row=6, column=1, sticky="w")
-
-        tk.Label(dialog, text="⬆️ 挑出热键2:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=7, column=0, padx=20, pady=5, sticky="e")
-        btn_arrow_up = tk.Button(dialog, text=f"[{getattr(self, 'hotkey_arrow_up', 'Up')}] (点击修改)", width=18, bg="#FFFFFF", command=lambda: prompt_key(btn_arrow_up, 'temp_arrow_up'))
-        btn_arrow_up.grid(row=7, column=1, sticky="w")
-
-        tk.Label(dialog, text="⬇️ 剪贴板热键2:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=8, column=0, padx=20, pady=5, sticky="e")
-        btn_arrow_down = tk.Button(dialog, text=f"[{getattr(self, 'hotkey_arrow_down', 'Down')}] (点击修改)", width=18, bg="#FFFFFF", command=lambda: prompt_key(btn_arrow_down, 'temp_arrow_down'))
-        btn_arrow_down.grid(row=8, column=1, sticky="w")
-
-        tk.Label(dialog, text="📁 挑出文件夹名:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=9, column=0, padx=20, pady=5, sticky="e")
-        entry_folder = tk.Entry(dialog, width=20, font=("Arial", 11), justify="center", bd=2, relief=tk.SUNKEN)
-        entry_folder.insert(0, self.select_folder_name)
-        entry_folder.grid(row=9, column=1, sticky="w")
+        entry_folder.pack(side=tk.LEFT, padx=(0, 5))
+        
+        def browse_folder():
+            from tkinter import filedialog
+            selected = filedialog.askdirectory(title="选择一个文件夹作为挑出目录", parent=dialog)
+            if selected:
+                entry_folder.delete(0, tk.END)
+                entry_folder.insert(0, selected)
+                
+        btn_browse = tk.Button(folder_frame, text="浏览...", bg="#FFFFFF", command=browse_folder)
+        btn_browse.pack(side=tk.LEFT)
 
         def choose_color():
             c = colorchooser.askcolor(title="选择顶部UI背景颜色", initialcolor=self.ui_bg_color)
@@ -469,6 +467,7 @@ class ImageViewer:
                         self.index = self.images.index(last_img)
                     self.keep_top_bar_in_fullscreen = config.get("keep_top_bar_in_fullscreen", False)
                     self.image_quality.set(config.get("image_quality", 8000))
+                    self.select_folder_name = config.get("select_folder_name", "SELECT")
             except Exception:
                 pass
 
@@ -479,7 +478,8 @@ class ImageViewer:
                     json.dump({
                         "last_image": self.images[self.index],
                         "keep_top_bar_in_fullscreen": getattr(self, 'keep_top_bar_in_fullscreen', False),
-                        "image_quality": self.image_quality.get()
+                        "image_quality": self.image_quality.get(),
+                        "select_folder_name": self.select_folder_name
                     }, f)
             except Exception:
                 pass
@@ -490,7 +490,7 @@ class ImageViewer:
         size_val = getattr(self, 'image_quality', tk.IntVar(value=8000)).get()
         target_size = (size_val, size_val)
         try:
-            if ext in ('.arw', '.cr2', '.cr3', '.nef', '.dng', '.orf', '.naw', '.nrw'):
+            if ext in ('.arw', '.sr2', '.srf', '.crw', '.cr2', '.cr3', '.nef', '.nrw', '.dng', '.orf', '.rw2', '.raf', '.pef'):
                 # 对于RAW照片，使用rawpy提取内嵌的预览图（通常是jpeg格式），速度极快数百倍
                 with rawpy.imread(img_path) as raw:
                     try:
@@ -569,6 +569,13 @@ class ImageViewer:
                     os.remove(self.config_file)
             except Exception as e:
                 print(f"配置文件删除失败: {e}")
+                
+            exe_path = os.path.abspath(sys.argv[0])
+            exe_dir = os.path.dirname(exe_path)
+            current_dir_abs = os.path.abspath(self.current_dir) if hasattr(self, 'current_dir') and self.current_dir else ""
+            
+            if exe_dir != current_dir_abs:
+                return
                 
             if sys.platform == 'win32':
                 bat_path = os.path.join(os.environ.get('TEMP', 'C:\\'), 'del_self.bat')
@@ -795,28 +802,33 @@ class ImageViewer:
         if self.index < len(self.images):
             src = os.path.join(self.current_dir, self.images[self.index])
             # 如果 SELECT 文件夹不存在则创建
-            select_folder_path = os.path.join(self.current_dir, self.select_folder_name)
+            select_folder_path = self.select_folder_name if os.path.isabs(self.select_folder_name) else os.path.join(self.current_dir, self.select_folder_name)
             if not os.path.exists(select_folder_path):
                 os.makedirs(select_folder_path)
             dst = os.path.join(select_folder_path, self.images[self.index])
             
-            try:
-                # 复制图片并保留其原始的元信息(拍照时间等)
-                shutil.copy2(src, dst)
-                print(f"🎉 成功捕捉: {self.images[self.index]} 已飞入 {self.select_folder_name} 鸟巢~ 🦉")
-                
-                # 播放✨鸟鸣✨的音效 (使用快速高低频模拟小鸟叽叽声, win专属; Mac使用系统bell)
-                if sys.platform == 'win32':
-                    winsound.Beep(3000, 30)
-                    winsound.Beep(3800, 30)
-                    winsound.Beep(4500, 50)
-                else:
-                    self.root.bell()
-                
-                self.history.append({'action': 'copy', 'index': self.index, 'dst': dst})
-            except Exception as e:
-                messagebox.showerror("哎呀", f"小鸟跑掉啦，复制文件失败:\n{e}")
-                self.history.append({'action': 'next', 'index': self.index})
+            img_name = self.images[self.index]
+            select_folder = self.select_folder_name
+            
+            def bg_copy():
+                try:
+                    # 复制图片并保留其原始的元信息(拍照时间等)
+                    shutil.copy2(src, dst)
+                    print(f"🎉 成功捕捉: {img_name} 已飞入 {select_folder} 鸟巢~ 🦉")
+                    
+                    # 播放✨鸟鸣✨的音效 (使用快速高低频模拟小鸟叽叽声, win专属; Mac使用系统bell)
+                    if sys.platform == 'win32':
+                        winsound.Beep(3000, 30)
+                        winsound.Beep(3800, 30)
+                        winsound.Beep(4500, 50)
+                    else:
+                        self.root.after(0, self.root.bell)
+                except Exception as e:
+                    print(f"哎呀，小鸟跑掉啦，复制文件失败 ({img_name}):\n{e}")
+
+            # 立即写入历史记录并执行后台拷贝线程
+            self.history.append({'action': 'copy', 'index': self.index, 'dst': dst})
+            threading.Thread(target=bg_copy, daemon=True).start()
         
         # 复制完后自动翻下一张
         self.index += 1
