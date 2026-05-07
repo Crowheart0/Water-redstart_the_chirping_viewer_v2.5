@@ -16,7 +16,7 @@ import rawpy
 class ImageViewer:
     def __init__(self, root):
         self.root = root
-        self.root.title("🐦 Water-redstart: the chirping viewer v2.6 (双平台)")
+        self.root.title("🐦 Water-redstart: the chirping viewer v2.8 (双平台)")
         # 初始窗口大小
         self.root.geometry("900x700")
 
@@ -34,11 +34,9 @@ class ImageViewer:
         # 获取当前文件夹下所有图片（屏蔽子目录）
         self.supported_formats = ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.arw', '.sr2', '.srf', '.crw', '.cr2', '.cr3', '.nef', '.nrw', '.dng', '.orf', '.rw2', '.raf', '.pef')
         self.current_dir = os.getcwd()
-        self.images = [
-            f for f in os.listdir(self.current_dir)
-            if os.path.isfile(os.path.join(self.current_dir, f)) and f.lower().endswith(self.supported_formats)
-        ]
-        self.images.sort()
+        self.images = []
+        self.image_groups = {}
+        self._scan_images()
 
         self.index = 0
         self.select_folder_name = "SELECT"
@@ -137,49 +135,152 @@ class ImageViewer:
             except Exception as e:
                 print(f"切换输入法失败: {e}")
 
-    def open_folder(self):
-        from tkinter import filedialog
-        folder_selected = filedialog.askdirectory(title="选择包含照片的文件夹")
+    def _scan_images(self):
+        from collections import defaultdict
+        all_files = [
+            f for f in os.listdir(self.current_dir)
+            if os.path.isfile(os.path.join(self.current_dir, f)) and f.lower().endswith(self.supported_formats)
+        ]
+        
+        groups = defaultdict(list)
+        for f in all_files:
+            base, ext = os.path.splitext(f)
+            groups[base].append(f)
+            
+        self.images = []
+        self.image_groups = {}
+        for base, files in groups.items():
+            display_file = files[0]
+            # 优先选择 jpg/png 等常见格式作为预览，大幅度加速并且只保留一份显示
+            for ext in ['.jpg', '.jpeg', '.png', '.webp', '.bmp']:
+                matches = [f for f in files if f.lower().endswith(ext)]
+                if matches:
+                    display_file = matches[0]
+                    break
+            self.images.append(display_file)
+            self.image_groups[display_file] = files
+        self.images.sort()
+
+    def open_folder(self, folder_selected=None):
+        if not folder_selected:
+            from tkinter import filedialog
+            folder_selected = filedialog.askdirectory(title="选择包含照片的文件夹")
         if folder_selected:
-            # 清理当前资源
-            self.current_img_obj = None
-            self.tk_image = None
-            self.images = []
-            self.image_cache = {}
-            if self.canvas and hasattr(self, 'image_on_canvas') and self.image_on_canvas:
-                self.canvas.delete(self.image_on_canvas)
-                
-            self.current_dir = folder_selected
-            self.config_file = os.path.join(self.current_dir, ".birdviewer_config.json")
+            if not hasattr(self, 'loading_splash') or not self.loading_splash:
+                self.loading_splash = tk.Toplevel(self.root)
+                self.loading_splash.overrideredirect(True)
+                splash_w, splash_h = 240, 120
+                screen_w = self.root.winfo_screenwidth()
+                screen_h = self.root.winfo_screenheight()
+                self.loading_splash.geometry(f"{splash_w}x{splash_h}+{int((screen_w-splash_w)/2)}+{int((screen_h-splash_h)/2)}")
+                self.loading_splash.configure(bg="#FFF3E0")
+                tk.Label(self.loading_splash, text="🥚 Hatching...", font=("Microsoft YaHei", 16, "bold"), bg="#FFF3E0", fg="#E65100").pack(expand=True)
+                self.loading_splash.update()
             
-            # 重新获取图片
-            self.images = [
-                f for f in os.listdir(self.current_dir)
-                if os.path.isfile(os.path.join(self.current_dir, f)) and f.lower().endswith(self.supported_formats)
-            ]
-            self.images.sort()
+            self.root.after(20, lambda: self._process_open_folder(folder_selected))
+
+    def _process_open_folder(self, folder_selected):
+        # 清理当前资源
+        self.current_img_obj = None
+        self.tk_image = None
+        self.images = []
+        self.image_cache = {}
+        if self.canvas and hasattr(self, 'image_on_canvas') and self.image_on_canvas:
+            self.canvas.delete(self.image_on_canvas)
             
-            self.index = 0
-            self.history = []
-            
-            # 读取上一次的进度配置
-            self.load_config()
-            
-            if self.images:
-                self.progress_scale.config(to=len(self.images)-1)
-                self.progress_scale.set(self.index)
-            else:
-                self.progress_scale.config(to=0)
-                self.progress_scale.set(0)
-                self.top_info_label.config(text="📂 当前文件夹没有找到支持的照片...")
-                
+        self.current_dir = folder_selected
+        self.config_file = os.path.join(self.current_dir, ".birdviewer_config.json")
+        
+        # 重新获取图片
+        self._scan_images()
+        
+        self.index = 0
+        self.history = []
+        
+        # 读取上一次的进度配置
+        self.load_config()
+        
+        if hasattr(self, 'loading_splash') and self.loading_splash:
+            try:
+                self.loading_splash.destroy()
+            except:
+                pass
+            self.loading_splash = None
+
+        if self.images:
+            self.progress_scale.config(to=len(self.images)-1)
+            self.progress_scale.set(self.index)
             if self.reverse_var.get():
                 self.images.reverse()
                 self.index = len(self.images) - 1 - self.index
                 self.progress_scale.set(self.index)
-                
             self.update_title()
             self.load_image()
+        else:
+            self.progress_scale.config(to=0)
+            self.progress_scale.set(0)
+            
+            subdirs = []
+            try:
+                subdirs = [d for d in os.listdir(folder_selected) if os.path.isdir(os.path.join(folder_selected, d))]
+            except Exception:
+                pass
+                
+            if subdirs:
+                self.show_subfolder_dialog(folder_selected, subdirs)
+            else:
+                messagebox.showwarning("哎呀", "孵化失败，小鸟去哪了？文件夹里似乎没有照片呢！")
+                self.show_empty_state()
+                self.top_info_label.config(text="🐾 欢迎！请挑选一个装满照片的文件夹开始吧~")
+                self.root.title("🐦 Water-redstart: the chirping viewer v2.8")
+
+    def show_subfolder_dialog(self, parent_folder, subdirs):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("🌿 发现隐藏的枝桠...")
+        dialog.geometry("400x350")
+        dialog.configure(bg="#E8F5E9")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        tk.Label(dialog, text="当前巢穴没有照片，但小鸟好像藏在下面的树枝里，\n要飞去那里看看吗？", font=("Microsoft YaHei", 11), bg="#E8F5E9", fg="#2E7D32").pack(pady=10)
+
+        frame = tk.Frame(dialog, bg="#E8F5E9")
+        frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=5)
+
+        scrollbar = tk.Scrollbar(frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        listbox = tk.Listbox(frame, yscrollcommand=scrollbar.set, font=("Microsoft YaHei", 10), bg="#F1F8E9", selectbackground="#A5D6A7", selectforeground="#000000", bd=0, highlightthickness=1)
+        listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=listbox.yview)
+
+        for d in subdirs:
+            listbox.insert(tk.END, d)
+
+        def on_open():
+            selection = listbox.curselection()
+            if selection:
+                selected_subdir = listbox.get(selection[0])
+                new_path = os.path.join(parent_folder, selected_subdir)
+                dialog.destroy()
+                self.open_folder(new_path)
+            else:
+                messagebox.showinfo("提示", "请先挑选一截树枝哦！", parent=dialog)
+
+        def on_cancel():
+            dialog.destroy()
+            self.show_empty_state()
+            self.top_info_label.config(text="🐾 欢迎！请挑选一个装满照片的文件夹开始吧~")
+            self.root.title("🐦 Water-redstart: the chirping viewer v2.8")
+
+        # 双击列表项直接打开
+        listbox.bind("<Double-1>", lambda e: on_open())
+
+        btn_frame = tk.Frame(dialog, bg="#E8F5E9")
+        btn_frame.pack(pady=15)
+
+        tk.Button(btn_frame, text="🕊️ 飞去看看", command=on_open, bg="#81C784", fg="white", font=("Microsoft YaHei", 10, "bold"), bd=0, activebackground="#4CAF50", cursor="hand2", padx=10, pady=5).pack(side=tk.LEFT, padx=10)
+        tk.Button(btn_frame, text="🏠 退回鸟巢", command=on_cancel, bg="#FFCC80", fg="white", font=("Microsoft YaHei", 10, "bold"), bd=0, activebackground="#FFB74D", cursor="hand2", padx=10, pady=5).pack(side=tk.LEFT, padx=10)
 
     def create_menu(self):
         self.menubar = tk.Menu(self.root)
@@ -224,7 +325,7 @@ class ImageViewer:
         ))
         help_menu.add_separator()
         help_menu.add_command(label="关于", command=lambda: messagebox.showinfo(
-            "关于", "🐦 Water-redstart: the chirping viewer\n\n版本：2.6 (双平台)\n作者：Crowpaw@2026\n鸣谢：ARC, Untribiium, ~ris, 蓝嘴红鹊, 欧鹭风云, 瑞瑞的, 白鹡鸰, 灰喜鹊, 碳酸, Gemini 3.1 Pro\n于一"
+            "关于", "🐦 Water-redstart: the chirping viewer\n\n版本：2.8 (双平台)\n作者：Crowpaw@2026\n鸣谢：ARC, Untribiium, ~ris, 蓝嘴红鹊, 欧鹭风云, 瑞瑞的, 白鹡鸰, 灰喜鹊, 碳酸, 逢青, Gemini 3.1 Pro\n于一"
         ))
         self.menubar.add_cascade(label="帮助", menu=help_menu)
         
@@ -291,13 +392,18 @@ class ImageViewer:
         select_count = self.get_select_count()
         if self.images and self.index < len(self.images):
             img_name = self.images[self.index]
-            self.root.title(f"🐦 Water-redstart: the chirping viewer v2.6 | 进度: {self.index + 1}/{len(self.images)} | 📁已选: {select_count} | 当前: {img_name}")
+            group_files = self.image_groups.get(img_name, [img_name])
+            group_info = ""
+            if len(group_files) > 1:
+                group_info = " | 🗂️ J+RAW 重叠显示"
+                
+            self.root.title(f"🐦 Water-redstart: the chirping viewer v2.8 | 进度: {self.index + 1}/{len(self.images)} | 🪺入巢: {select_count} | 当前: {img_name}{group_info}")
             self.top_info_label.config(
-                text=f"🐾 进度：{self.index + 1} / {len(self.images)} 📷 【{img_name}】 | 🌲 已挑出: {select_count}只 | 🕊️ 跳过: '{self.hotkey_next.upper()}'  💖 挑出: '{self.hotkey_copy.upper()}'  ⏪ 撤销: '{self.hotkey_undo.upper()}'  📋 剪贴: '{self.hotkey_clip.upper()}'"
+                text=f"🐾 进度：{self.index + 1} / {len(self.images)} 📷 【{img_name}】{group_info} | 🪺 入巢: {select_count}只 | 🕊️ 跳过: '{self.hotkey_next.upper()}'  💖 挑出: '{self.hotkey_copy.upper()}'  ⏪ 撤销: '{self.hotkey_undo.upper()}'  📋 剪贴: '{self.hotkey_clip.upper()}'"
             )
         else:
-            self.root.title(f"🐦 Water-redstart: the chirping viewer v2.6")
-            self.top_info_label.config(text=f"🌲 已挑出: {select_count}只 | 🕊️ 跳过: '{self.hotkey_next.upper()}' | 💖 挑出: '{self.hotkey_copy.upper()}' | ⏪ 撤销: '{self.hotkey_undo.upper()}' | 📋 剪贴: '{self.hotkey_clip.upper()}'")
+            self.root.title(f"🐦 Water-redstart: the chirping viewer v2.8")
+            self.top_info_label.config(text=f"🪺 入巢: {select_count}只 | 🕊️ 跳过: '{self.hotkey_next.upper()}' | 💖 挑出: '{self.hotkey_copy.upper()}' | ⏪ 撤销: '{self.hotkey_undo.upper()}' | 📋 剪贴: '{self.hotkey_clip.upper()}'")
 
     def show_hotkey_dialog(self):
         dialog = tk.Toplevel(self.root)
@@ -369,7 +475,7 @@ class ImageViewer:
         btn_arrow_down = tk.Button(dialog, text=f"[{getattr(self, 'hotkey_arrow_down', 'Down')}] (点击修改)", width=18, bg="#FFFFFF", command=lambda: prompt_key(btn_arrow_down, 'temp_arrow_down'))
         btn_arrow_down.grid(row=8, column=1, sticky="w")
 
-        tk.Label(dialog, text="📁 挑出文件夹名:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=9, column=0, padx=20, pady=5, sticky="e")
+        tk.Label(dialog, text="🪺 入巢文件夹名:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=9, column=0, padx=20, pady=5, sticky="e")
         
         folder_frame = tk.Frame(dialog, bg="#FFECD2")
         folder_frame.grid(row=9, column=1, sticky="w")
@@ -641,20 +747,93 @@ class ImageViewer:
         self.preload_thread = threading.Thread(target=self.preload_images_worker, args=(self.index,), daemon=True)
         self.preload_thread.start()
 
+    def show_empty_state(self):
+        if hasattr(self, 'empty_frame') and self.empty_frame.winfo_exists():
+            return
+            
+        self.canvas.pack_forget()
+        
+        self.empty_frame = tk.Frame(self.img_frame, bg='#FFFFFF', relief=tk.GROOVE, bd=2)
+        self.empty_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # 内部容器使其居中
+        inner_frame = tk.Frame(self.empty_frame, bg='#FFFFFF')
+        inner_frame.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+        
+        lbl_title = tk.Label(inner_frame, text="🌿 这里还没有鸟儿的踪迹 🌿", font=("Microsoft YaHei", 20, "bold"), bg='#FFFFFF', fg="#2E7D32")
+        lbl_title.pack(pady=20)
+        
+        lbl_desc = tk.Label(inner_frame, text="您可以选择以下方式开始一段观鸟之旅：", font=("Microsoft YaHei", 12), bg='#FFFFFF', fg="#555555")
+        lbl_desc.pack(pady=10)
+
+        # 手绘鸟巢形状的拖拽/点击区域
+        nest_canvas = tk.Canvas(inner_frame, width=400, height=260, bg='#FFFFFF', highlightthickness=0, cursor="hand2")
+        nest_canvas.pack(pady=10)
+        
+        # 画鸟巢中躺着的几颗鸟蛋
+        nest_canvas.create_oval(150, 130, 190, 175, fill="#E0F7FA", outline="#B2EBF2", width=2)
+        nest_canvas.create_oval(180, 140, 220, 185, fill="#F1F8E9", outline="#DCEDC8", width=2)
+        nest_canvas.create_oval(210, 125, 250, 170, fill="#FFF3E0", outline="#FFE0B2", width=2)
+
+        # 绘制半圆形鸟巢主体
+        nest_canvas.create_arc(60, 100, 340, 280, start=180, extent=180, fill="#D7CCC8", outline="#8D6E63", width=5, style=tk.CHORD)
+        
+        # 绘制鸟巢表面的树枝交错纹理
+        branches = [
+            (80, 170, 130, 190), (110, 200, 170, 180), (150, 180, 200, 210), 
+            (190, 195, 250, 180), (230, 190, 290, 205), (270, 185, 320, 170),
+            (90, 160, 140, 170), (280, 170, 320, 150), (140, 210, 180, 220), (210, 215, 250, 200)
+        ]
+        for x1, y1, x2, y2 in branches:
+            nest_canvas.create_line(x1, y1, x2, y2, fill="#A1887F", width=4, capstyle=tk.ROUND)
+
+        # 鸟巢上的文字
+        lbl_drag_id = nest_canvas.create_text(200, 60, text="✨ 将文件夹拖入巢中\n     或者点击鸟巢选择文件夹开始孵化 ✨", font=("Microsoft YaHei", 14, "bold"), fill="#6D4C41", justify=tk.CENTER)
+        
+        # 绑定点击鸟巢触发选择文件夹
+        nest_canvas.bind("<Button-1>", lambda e: self.open_folder())
+        
+        # 绑定拖拽事件 (使用 windnd 适配 Windows)
+        try:
+            if sys.platform == 'win32':
+                import windnd
+                def on_drop(files):
+                    if files:
+                        try:
+                            # 尝试对接收到的文件路径进行解码
+                            if isinstance(files[0], bytes):
+                                try:
+                                    folder_path = files[0].decode('gbk')
+                                except:
+                                    folder_path = files[0].decode('utf-8', errors='ignore')
+                            else:
+                                folder_path = str(files[0])
+                            
+                            if os.path.exists(folder_path):
+                                path_to_open = folder_path if os.path.isdir(folder_path) else os.path.dirname(folder_path)
+                                # 安全脱离：延迟 200ms 执行加载，防止底层的拖拽窗体消息还没结束就被后续加载流程销毁了UI导致内存越界闪退
+                                self.root.after(200, self.open_folder, path_to_open)
+                        except Exception as e:
+                            print(f"拖拽处理异常: {e}")
+                windnd.hook_dropfiles(self.root, func=on_drop)
+        except Exception as e:
+            nest_canvas.itemconfig(lbl_drag_id, text="✨ 拖拽功能缺失 ✨\n(请点击鸟巢手动选择文件夹)")
+            
+    def hide_empty_state(self):
+        if hasattr(self, 'empty_frame') and self.empty_frame.winfo_exists():
+            self.empty_frame.destroy()
+            self.canvas.pack(fill=tk.BOTH, expand=True)
+
     def load_image(self):
         self.save_config()
         # 检查有没有图片
         if not self.images:
-            if not getattr(self, 'prompted_for_folder', False):
-                self.prompted_for_folder = True
-                if messagebox.askyesno("提示", "当前目录为空，没有找到支持的照片！\n是否手动选择一个包含照片的文件夹？"):
-                    self.open_folder()
-                    return
-            messagebox.showinfo("提示", "未找到可显示的照片，即将退出程序哦！")
-            self.root.destroy()
+            self.show_empty_state()
+            self.top_info_label.config(text="🐾 欢迎！请挑选一个装满照片的文件夹开始吧~")
+            self.root.title("🐦 Water-redstart: the chirping viewer v2.8")
             return
             
-        self.prompted_for_folder = False
+        self.hide_empty_state()
 
         # 检查是否看到最后一张了
         if self.index >= len(self.images):
@@ -800,21 +979,28 @@ class ImageViewer:
 
     def copy_and_next(self, event=None):
         if self.index < len(self.images):
-            src = os.path.join(self.current_dir, self.images[self.index])
+            img_name = self.images[self.index]
+            files_to_copy = self.image_groups.get(img_name, [img_name])
+            
             # 如果 SELECT 文件夹不存在则创建
             select_folder_path = self.select_folder_name if os.path.isabs(self.select_folder_name) else os.path.join(self.current_dir, self.select_folder_name)
             if not os.path.exists(select_folder_path):
                 os.makedirs(select_folder_path)
-            dst = os.path.join(select_folder_path, self.images[self.index])
+                
+            dst_list = []
+            src_list = []
+            for fname in files_to_copy:
+                src_list.append(os.path.join(self.current_dir, fname))
+                dst_list.append(os.path.join(select_folder_path, fname))
             
-            img_name = self.images[self.index]
             select_folder = self.select_folder_name
             
             def bg_copy():
                 try:
-                    # 复制图片并保留其原始的元信息(拍照时间等)
-                    shutil.copy2(src, dst)
-                    print(f"🎉 成功捕捉: {img_name} 已飞入 {select_folder} 鸟巢~ 🦉")
+                    for src, dst, fname in zip(src_list, dst_list, files_to_copy):
+                        # 复制图片并保留其原始的元信息(拍照时间等)
+                        shutil.copy2(src, dst)
+                        print(f"🎉 成功捕捉: {fname} 已飞入 {select_folder} 鸟巢~ 🦉")
                     
                     # 播放✨鸟鸣✨的音效 (使用快速高低频模拟小鸟叽叽声, win专属; Mac使用系统bell)
                     if sys.platform == 'win32':
@@ -824,10 +1010,10 @@ class ImageViewer:
                     else:
                         self.root.after(0, self.root.bell)
                 except Exception as e:
-                    print(f"哎呀，小鸟跑掉啦，复制文件失败 ({img_name}):\n{e}")
+                    print(f"哎呀，小鸟跑掉啦，复制文件失败:\n{e}")
 
             # 立即写入历史记录并执行后台拷贝线程
-            self.history.append({'action': 'copy', 'index': self.index, 'dst': dst})
+            self.history.append({'action': 'copy', 'index': self.index, 'dst_list': dst_list})
             threading.Thread(target=bg_copy, daemon=True).start()
         
         # 复制完后自动翻下一张
@@ -882,13 +1068,17 @@ class ImageViewer:
         self.index = last_action['index']
         
         if last_action['action'] == 'copy':
-            dst = last_action['dst']
-            try:
-                if os.path.exists(dst):
-                    os.remove(dst)
-                    print(f"⏪ 撤销捕捉: 放飞了小鸟 {os.path.basename(dst)}")
-            except Exception as e:
-                print(f"撤销删除失败: {e}")
+            dst_list = last_action.get('dst_list', [])
+            if 'dst' in last_action:  # 兼容旧版本记录
+                dst_list.append(last_action['dst'])
+                
+            for dst in dst_list:
+                try:
+                    if os.path.exists(dst):
+                        os.remove(dst)
+                        print(f"⏪ 撤销捕捉: 放飞了小鸟 {os.path.basename(dst)}")
+                except Exception as e:
+                    print(f"撤销删除失败: {e}")
                 
         self.load_image()
 
