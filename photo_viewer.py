@@ -1,8 +1,8 @@
-import os
+﻿import os
 import shutil
 import tkinter as tk
 from tkinter import messagebox, colorchooser
-from PIL import Image, ImageTk, ImageOps
+from PIL import Image, ImageTk, ImageOps, ImageFilter
 import sys
 import subprocess
 if sys.platform == 'win32':
@@ -16,7 +16,7 @@ import rawpy
 class ImageViewer:
     def __init__(self, root):
         self.root = root
-        self.root.title("🐦 Water-redstart: the chirping viewer v2.8 (双平台)")
+        self.root.title("🐦 Water-redstart: the chirping viewer v3.0 (双平台)")
         # 初始窗口大小
         self.root.geometry("900x700")
 
@@ -81,6 +81,8 @@ class ImageViewer:
         self.drag_start_x = 0
         self.drag_start_y = 0
         self.reverse_mode = False
+        self.is_magnifying = False
+        self.magnify_m = 3.8
 
         # 热键配置
         self.hotkey_next = 'd'
@@ -91,6 +93,7 @@ class ImageViewer:
         self.hotkey_arrow_right = 'Right'
         self.hotkey_arrow_up = 'Up'
         self.hotkey_arrow_down = 'Down'
+        self.hotkey_magnify = 'space'
         
         self._current_bind_next = None
         self._current_bind_copy = None
@@ -100,6 +103,7 @@ class ImageViewer:
         self._current_bind_arrow_right = None
         self._current_bind_arrow_up = None
         self._current_bind_arrow_down = None
+        self._current_bind_magnify = None
 
         self.create_menu()
         self.apply_bindings()
@@ -232,7 +236,7 @@ class ImageViewer:
                 messagebox.showwarning("哎呀", "孵化失败，小鸟去哪了？文件夹里似乎没有照片呢！")
                 self.show_empty_state()
                 self.top_info_label.config(text="🐾 欢迎！请挑选一个装满照片的文件夹开始吧~")
-                self.root.title("🐦 Water-redstart: the chirping viewer v2.8")
+                self.root.title("🐦 Water-redstart: the chirping viewer v3.0")
 
     def show_subfolder_dialog(self, parent_folder, subdirs):
         dialog = tk.Toplevel(self.root)
@@ -271,7 +275,7 @@ class ImageViewer:
             dialog.destroy()
             self.show_empty_state()
             self.top_info_label.config(text="🐾 欢迎！请挑选一个装满照片的文件夹开始吧~")
-            self.root.title("🐦 Water-redstart: the chirping viewer v2.8")
+            self.root.title("🐦 Water-redstart: the chirping viewer v3.0")
 
         # 双击列表项直接打开
         listbox.bind("<Double-1>", lambda e: on_open())
@@ -316,16 +320,18 @@ class ImageViewer:
         help_menu = tk.Menu(self.menubar, tearoff=0)
         help_menu.add_command(label="操作说明", command=lambda: messagebox.showinfo(
             "操作说明", 
-            f"- 按 下一张 ({self.hotkey_next.upper()}): 翻到下一张图片\n"
-            f"- 按 挑出 ({self.hotkey_copy.upper()}): 复制本图片至{self.select_folder_name}文件夹并翻页\n"
+            f"- 按 下一张 ({self.hotkey_next.upper()} / {self.hotkey_arrow_right.title()}): 翻到下一张图片\n"
+            f"- 按 挑出 ({self.hotkey_copy.upper()} / {self.hotkey_arrow_up.title()}): 复制本图片至{self.select_folder_name}文件夹并翻页\n"
             f"- 按 撤销 ({self.hotkey_undo.upper()}): 撤销上一步操作并退回\n"
-            f"- 按 复制 ({self.hotkey_clip.upper()}): 将当前照片复制到系统剪贴板\n"
+            f"- 按 复制 ({self.hotkey_clip.upper()} / {self.hotkey_arrow_down.title()}): 将当前照片复制到系统剪贴板\n"
+            f"- 按 返回上图 ({self.hotkey_arrow_left.title()}): 翻到上一张图\n"
+            f"- 按住 放大 ({self.hotkey_magnify.title()}): 在按住期间中心放大对焦\n"
             "- F11: 切换全屏\n"
             "- Esc: 退出全屏"
         ))
         help_menu.add_separator()
         help_menu.add_command(label="关于", command=lambda: messagebox.showinfo(
-            "关于", "🐦 Water-redstart: the chirping viewer\n\n版本：2.8 (双平台)\n作者：Crowpaw@2026\n鸣谢：ARC, Untribiium, ~ris, 蓝嘴红鹊, 欧鹭风云, 瑞瑞的, 白鹡鸰, 灰喜鹊, 碳酸, 逢青, Gemini 3.1 Pro\n于一"
+            "关于", "🐦 Water-redstart: the chirping viewer\n\n版本：3.0 (双平台)\n作者：Crowpaw@2026\n鸣谢：ARC, Untribiium, ~ris, 蓝嘴红鹊, 欧鹭风云, 瑞瑞的, 白鹡鸰, 灰喜鹊, 碳酸, 逢青, Gemini 3.1 Pro\n于一"
         ))
         self.menubar.add_cascade(label="帮助", menu=help_menu)
         
@@ -341,6 +347,13 @@ class ImageViewer:
                     self.root.unbind(f"<{old_sym}>")
                 except tk.TclError:
                     pass
+                    
+        old_mag = getattr(self, '_current_bind_magnify', None)
+        if old_mag:
+            try:
+                self.root.unbind(f"<KeyPress-{old_mag}>")
+                self.root.unbind(f"<KeyRelease-{old_mag}>")
+            except tk.TclError: pass
             
         # 绑定新的热键
         self.root.bind(f"<{self.hotkey_next}>", self.next_image)
@@ -353,6 +366,9 @@ class ImageViewer:
         self.root.bind(f"<{self.hotkey_arrow_up}>", self.copy_and_next)
         self.root.bind(f"<{self.hotkey_arrow_down}>", self.copy_to_os_clipboard)
         
+        self.root.bind(f"<KeyPress-{self.hotkey_magnify}>", self.on_space_press)
+        self.root.bind(f"<KeyRelease-{self.hotkey_magnify}>", self.on_space_release)
+        
         self._current_bind_next = self.hotkey_next
         self._current_bind_copy = self.hotkey_copy
         self._current_bind_undo = self.hotkey_undo
@@ -361,6 +377,7 @@ class ImageViewer:
         self._current_bind_arrow_right = self.hotkey_arrow_right
         self._current_bind_arrow_up = self.hotkey_arrow_up
         self._current_bind_arrow_down = self.hotkey_arrow_down
+        self._current_bind_magnify = self.hotkey_magnify
 
         self.update_title()
 
@@ -390,20 +407,29 @@ class ImageViewer:
 
     def update_title(self):
         select_count = self.get_select_count()
+        folder_name = os.path.basename(self.current_dir.rstrip('/\\')) if self.current_dir else '未选择目录'
+        base_title_prefix = f"🐦 Water-redstart: the chirping viewer v3.0 (双平台) - {folder_name}"
+        
+        info_help = (f"🕊️ 跳: [{self.hotkey_next.upper()}/{self.hotkey_arrow_right.title()}]  "
+                     f"💖 挑: [{self.hotkey_copy.upper()}/{self.hotkey_arrow_up.title()}]  "
+                     f"⏪ 撤: [{self.hotkey_undo.upper()}]  "
+                     f"📋 剪贴: [{self.hotkey_clip.upper()}/{self.hotkey_arrow_down.title()}]  "
+                     f"🔍 放大: [{self.hotkey_magnify.title()}]")
+
         if self.images and self.index < len(self.images):
             img_name = self.images[self.index]
             group_files = self.image_groups.get(img_name, [img_name])
             group_info = ""
             if len(group_files) > 1:
-                group_info = " | 🗂️ J+RAW 重叠显示"
+                group_info = " | 🗂️ J+RAW"
                 
-            self.root.title(f"🐦 Water-redstart: the chirping viewer v2.8 | 进度: {self.index + 1}/{len(self.images)} | 🪺入巢: {select_count} | 当前: {img_name}{group_info}")
+            self.root.title(f"{base_title_prefix} | 进度: {self.index + 1}/{len(self.images)} | 🪺入巢: {select_count} | 当前: {img_name}{group_info}")
             self.top_info_label.config(
-                text=f"🐾 进度：{self.index + 1} / {len(self.images)} 📷 【{img_name}】{group_info} | 🪺 入巢: {select_count}只 | 🕊️ 跳过: '{self.hotkey_next.upper()}'  💖 挑出: '{self.hotkey_copy.upper()}'  ⏪ 撤销: '{self.hotkey_undo.upper()}'  📋 剪贴: '{self.hotkey_clip.upper()}'"
+                text=f"🐾 进度：{self.index + 1}/{len(self.images)} 📷 【{img_name}】{group_info} | 🪺 入巢: {select_count}只 | {info_help}"
             )
         else:
-            self.root.title(f"🐦 Water-redstart: the chirping viewer v2.8")
-            self.top_info_label.config(text=f"🪺 入巢: {select_count}只 | 🕊️ 跳过: '{self.hotkey_next.upper()}' | 💖 挑出: '{self.hotkey_copy.upper()}' | ⏪ 撤销: '{self.hotkey_undo.upper()}' | 📋 剪贴: '{self.hotkey_clip.upper()}'")
+            self.root.title(base_title_prefix)
+            self.top_info_label.config(text=f"🪺 入巢: {select_count}只 | {info_help}")
 
     def show_hotkey_dialog(self):
         dialog = tk.Toplevel(self.root)
@@ -424,6 +450,7 @@ class ImageViewer:
         dialog.temp_arrow_right = getattr(self, 'hotkey_arrow_right', 'Right')
         dialog.temp_arrow_up = getattr(self, 'hotkey_arrow_up', 'Up')
         dialog.temp_arrow_down = getattr(self, 'hotkey_arrow_down', 'Down')
+        dialog.temp_magnify = getattr(self, 'hotkey_magnify', 'space')
         dialog.temp_color = self.ui_bg_color
         dialog.temp_keep_top_bar = tk.BooleanVar(value=self.keep_top_bar_in_fullscreen)
 
@@ -475,10 +502,14 @@ class ImageViewer:
         btn_arrow_down = tk.Button(dialog, text=f"[{getattr(self, 'hotkey_arrow_down', 'Down')}] (点击修改)", width=18, bg="#FFFFFF", command=lambda: prompt_key(btn_arrow_down, 'temp_arrow_down'))
         btn_arrow_down.grid(row=8, column=1, sticky="w")
 
-        tk.Label(dialog, text="🪺 入巢文件夹名:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=9, column=0, padx=20, pady=5, sticky="e")
+        tk.Label(dialog, text="🔍 放大快捷键:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=9, column=0, padx=20, pady=5, sticky="e")
+        btn_magnify = tk.Button(dialog, text=f"[{getattr(self, 'hotkey_magnify', 'space')}] (点击修改)", width=18, bg="#FFFFFF", command=lambda: prompt_key(btn_magnify, 'temp_magnify'))
+        btn_magnify.grid(row=9, column=1, sticky="w")
+
+        tk.Label(dialog, text="🪺 入巢文件夹名:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=10, column=0, padx=20, pady=5, sticky="e")
         
         folder_frame = tk.Frame(dialog, bg="#FFECD2")
-        folder_frame.grid(row=9, column=1, sticky="w")
+        folder_frame.grid(row=10, column=1, sticky="w")
         
         entry_folder = tk.Entry(folder_frame, width=15, font=("Arial", 11), justify="center", bd=2, relief=tk.SUNKEN)
         entry_folder.insert(0, self.select_folder_name)
@@ -500,18 +531,18 @@ class ImageViewer:
                 dialog.temp_color = c[1]
                 btn_color.config(bg=c[1])
 
-        tk.Label(dialog, text="🎨 顶部横幅颜色:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=10, column=0, padx=20, pady=5, sticky="e")
+        tk.Label(dialog, text="🎨 顶部横幅颜色:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=11, column=0, padx=20, pady=5, sticky="e")
         btn_color = tk.Button(dialog, text=" 选择颜色 ", width=18, bg=self.ui_bg_color, command=choose_color)
-        btn_color.grid(row=10, column=1, sticky="w")
+        btn_color.grid(row=11, column=1, sticky="w")
 
-        tk.Label(dialog, text="🔠 顶部文字大小:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=11, column=0, padx=20, pady=5, sticky="e")
+        tk.Label(dialog, text="🔠 顶部文字大小:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=12, column=0, padx=20, pady=5, sticky="e")
         scale_size = tk.Scale(dialog, from_=6, to=24, orient=tk.HORIZONTAL, bg="#FFECD2", highlightthickness=0, length=140)
         scale_size.set(self.ui_font_size)
-        scale_size.grid(row=11, column=1, sticky="w")
+        scale_size.grid(row=12, column=1, sticky="w")
         
-        tk.Label(dialog, text="📺 全屏选项:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=12, column=0, padx=20, pady=5, sticky="e")
+        tk.Label(dialog, text="📺 全屏选项:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=13, column=0, padx=20, pady=5, sticky="e")
         chk_top_bar = tk.Checkbutton(dialog, text="全屏时保留上方菜单栏", variable=dialog.temp_keep_top_bar, bg="#FFECD2", font=("Microsoft YaHei", 10))
-        chk_top_bar.grid(row=12, column=1, sticky="w")
+        chk_top_bar.grid(row=13, column=1, sticky="w")
         
         def save():
             new_folder = entry_folder.get().strip()
@@ -519,7 +550,7 @@ class ImageViewer:
             if not new_folder:
                 messagebox.showwarning("哎呀", "文件夹名不能为空哦！", parent=dialog)
                 return
-            if len(set([dialog.temp_next, dialog.temp_copy, dialog.temp_undo, dialog.temp_clip])) < 4:
+            if len(set([dialog.temp_next, dialog.temp_copy, dialog.temp_undo, dialog.temp_clip, dialog.temp_magnify])) < 5:
                 messagebox.showwarning("哎呀", "不同功能的热键不能重复！", parent=dialog)
                 return
             if len(set([dialog.temp_arrow_left, dialog.temp_arrow_right, dialog.temp_arrow_up, dialog.temp_arrow_down])) < 4:
@@ -530,6 +561,7 @@ class ImageViewer:
             self.hotkey_copy = dialog.temp_copy
             self.hotkey_undo = dialog.temp_undo
             self.hotkey_clip = dialog.temp_clip
+            self.hotkey_magnify = dialog.temp_magnify
             self.hotkey_arrow_left = dialog.temp_arrow_left
             self.hotkey_arrow_right = dialog.temp_arrow_right
             self.hotkey_arrow_up = dialog.temp_arrow_up
@@ -542,6 +574,7 @@ class ImageViewer:
             self.ui_font_size = scale_size.get()
             self.top_frame.config(bg=self.ui_bg_color)
             self.top_info_label.config(bg=self.ui_bg_color, font=("Microsoft YaHei", self.ui_font_size))
+            self.update_top_info()
             
             # 重新生成菜单（更新帮助说明里的热键显示）
             self.create_menu()
@@ -561,11 +594,15 @@ class ImageViewer:
             dialog.destroy()
             
         btn_save = tk.Button(dialog, text="🎀 保存设置", command=save, width=20, font=("Microsoft YaHei", 11, "bold"), bg="#FFB6C1", fg="white", activebackground="#FF69B4", bd=0, cursor="hand2")
-        btn_save.grid(row=13, column=0, columnspan=2, pady=20)
+        btn_save.grid(row=14, column=0, columnspan=2, pady=20)
+
+    def get_global_config_path(self):
+        return os.path.expanduser("~/.birdviewer_global.json")
 
     def load_config(self):
         if os.path.exists(self.config_file):
             try:
+                import json
                 with open(self.config_file, 'r', encoding='utf-8') as f:
                     config = json.load(f)
                     last_img = config.get("last_image")
@@ -578,6 +615,19 @@ class ImageViewer:
                 pass
 
     def save_config(self):
+        try:
+            import json
+            global_path = self.get_global_config_path()
+            global_data = {}
+            if os.path.exists(global_path):
+                with open(global_path, 'r', encoding='utf-8') as gf:
+                    try: global_data = json.load(gf)
+                    except: pass
+            global_data['last_dir'] = self.current_dir
+            with open(global_path, 'w', encoding='utf-8') as gf:
+                json.dump(global_data, gf)
+        except Exception: pass
+
         if self.images and self.index < len(self.images):
             try:
                 with open(self.config_file, 'w', encoding='utf-8') as f:
@@ -767,16 +817,17 @@ class ImageViewer:
         lbl_desc.pack(pady=10)
 
         # 手绘鸟巢形状的拖拽/点击区域
-        nest_canvas = tk.Canvas(inner_frame, width=400, height=260, bg='#FFFFFF', highlightthickness=0, cursor="hand2")
+        nest_canvas = tk.Canvas(inner_frame, width=460, height=260, bg='#FFFFFF', highlightthickness=0)
         nest_canvas.pack(pady=10)
         
+        # 建立标签用于识别鸟巢点击
         # 画鸟巢中躺着的几颗鸟蛋
-        nest_canvas.create_oval(150, 130, 190, 175, fill="#E0F7FA", outline="#B2EBF2", width=2)
-        nest_canvas.create_oval(180, 140, 220, 185, fill="#F1F8E9", outline="#DCEDC8", width=2)
-        nest_canvas.create_oval(210, 125, 250, 170, fill="#FFF3E0", outline="#FFE0B2", width=2)
+        nest_canvas.create_oval(150, 130, 190, 175, fill="#E0F7FA", outline="#B2EBF2", width=2, tags="nest")
+        nest_canvas.create_oval(180, 140, 220, 185, fill="#F1F8E9", outline="#DCEDC8", width=2, tags="nest")
+        nest_canvas.create_oval(210, 125, 250, 170, fill="#FFF3E0", outline="#FFE0B2", width=2, tags="nest")
 
         # 绘制半圆形鸟巢主体
-        nest_canvas.create_arc(60, 100, 340, 280, start=180, extent=180, fill="#D7CCC8", outline="#8D6E63", width=5, style=tk.CHORD)
+        nest_canvas.create_arc(60, 100, 340, 280, start=180, extent=180, fill="#D7CCC8", outline="#8D6E63", width=5, style=tk.CHORD, tags="nest")
         
         # 绘制鸟巢表面的树枝交错纹理
         branches = [
@@ -785,14 +836,43 @@ class ImageViewer:
             (90, 160, 140, 170), (280, 170, 320, 150), (140, 210, 180, 220), (210, 215, 250, 200)
         ]
         for x1, y1, x2, y2 in branches:
-            nest_canvas.create_line(x1, y1, x2, y2, fill="#A1887F", width=4, capstyle=tk.ROUND)
+            nest_canvas.create_line(x1, y1, x2, y2, fill="#A1887F", width=4, capstyle=tk.ROUND, tags="nest")
 
         # 鸟巢上的文字
-        lbl_drag_id = nest_canvas.create_text(200, 60, text="✨ 将文件夹拖入巢中\n     或者点击鸟巢选择文件夹开始孵化 ✨", font=("Microsoft YaHei", 14, "bold"), fill="#6D4C41", justify=tk.CENTER)
+        lbl_drag_id = nest_canvas.create_text(200, 100, text="✨ 将文件夹拖入巢中\n     或者点击鸟巢选择文件夹开始孵化 ✨", font=("Microsoft YaHei", 12, "bold"), fill="#6D4C41", justify=tk.CENTER, tags="nest")
         
         # 绑定点击鸟巢触发选择文件夹
-        nest_canvas.bind("<Button-1>", lambda e: self.open_folder())
+        nest_canvas.tag_bind("nest", "<Button-1>", lambda e: self.open_folder())
+        nest_canvas.tag_bind("nest", "<Enter>", lambda e: nest_canvas.config(cursor="hand2"))
         
+        # 尝试读取上次打开的文件夹并绘制回头鸟
+        import json
+        last_dir = None
+        global_path = self.get_global_config_path()
+        if os.path.exists(global_path):
+            with open(global_path, 'r', encoding='utf-8') as gf:
+                try: last_dir = json.load(gf).get('last_dir')
+                except: pass
+
+        if last_dir and os.path.isdir(last_dir):
+            # 将鸟放置在鸟巢正右方，嘴巴改小且变黑，朝向左侧看鸟巢
+            # Bird Body
+            nest_canvas.create_oval(345, 130, 395, 175, fill="#4DD0E1", outline="#00BCD4", width=2, tags="bird")
+            nest_canvas.create_polygon(335, 145, 348, 148, 348, 153, fill="black", outline="black", tags="bird") # Beak (Small, Black, Left)
+            nest_canvas.create_oval(355, 140, 363, 148, fill="black", tags="bird") # Eye
+            nest_canvas.create_oval(357, 142, 359, 144, fill="white", tags="bird") # Eye Light
+            nest_canvas.create_polygon(385, 150, 420, 160, 385, 165, fill="#FF8A65", outline="#FF7043", tags="bird") # Tail
+            nest_canvas.create_oval(365, 150, 390, 165, fill="#80DEEA", outline="#00ACC1", width=1, tags="bird") # Wing
+            
+            # 鸟的脚丫
+            nest_canvas.create_line(365, 175, 365, 190, fill="#FFB300", width=2, tags="bird")
+            nest_canvas.create_line(375, 175, 375, 190, fill="#FFB300", width=2, tags="bird")
+            
+            nest_canvas.create_text(370, 105, text="回上次的\n鸟巢看看", font=("Microsoft YaHei", 9, "bold"), fill="#006064", justify=tk.CENTER, tags="bird")
+            
+            nest_canvas.tag_bind("bird", "<Button-1>", lambda e, d=last_dir: self.open_folder(d))
+            nest_canvas.tag_bind("bird", "<Enter>", lambda e: nest_canvas.config(cursor="hand2"))
+
         # 绑定拖拽事件 (使用 windnd 适配 Windows)
         try:
             if sys.platform == 'win32':
@@ -825,14 +905,16 @@ class ImageViewer:
             self.canvas.pack(fill=tk.BOTH, expand=True)
 
     def load_image(self):
-        self.save_config()
-        # 检查有没有图片
+        # 1. 先检查当前目录下有没有图片
         if not self.images:
             self.show_empty_state()
             self.top_info_label.config(text="🐾 欢迎！请挑选一个装满照片的文件夹开始吧~")
-            self.root.title("🐦 Water-redstart: the chirping viewer v2.8")
+            self.root.title("🐦 Water-redstart: the chirping viewer v3.0")
             return
             
+        # 2. 确认有图片后，再保存当前合法的路径到配置文件中
+        self.save_config()
+        
         self.hide_empty_state()
 
         # 检查是否看到最后一张了
@@ -911,6 +993,30 @@ class ImageViewer:
         
         self.display_image()
 
+    def on_space_press(self, event=None):
+        if not getattr(self, 'is_magnifying', False):
+            self.is_magnifying = True
+            # 保存放大前的浏览状态
+            self.pre_magnify_state = {
+                'is_fit': getattr(self, 'is_fit', True),
+                'current_scale': getattr(self, 'current_scale', 1.0),
+                'im_x': getattr(self, 'im_x', 0),
+                'im_y': getattr(self, 'im_y', 0)
+            }
+            self.display_image()
+
+    def on_space_release(self, event=None):
+        if getattr(self, 'is_magnifying', False):
+            self.is_magnifying = False
+            # 恢复放大前的浏览状态
+            if hasattr(self, 'pre_magnify_state'):
+                state = self.pre_magnify_state
+                self.is_fit = state['is_fit']
+                self.current_scale = state['current_scale']
+                self.im_x = state['im_x']
+                self.im_y = state['im_y']
+            self.display_image()
+
     def display_image(self, event=None):
         if not self.current_img_obj:
             return
@@ -923,7 +1029,14 @@ class ImageViewer:
 
         img_w, img_h = self.current_img_obj.size
 
-        if self.is_fit:
+        if getattr(self, 'is_magnifying', False):
+            base_scale = min(ww / img_w, wh / img_h)
+            crop_w = max(32, img_w / self.magnify_m)
+            self.current_scale = (img_w / crop_w) * base_scale
+            self.is_fit = False
+            self.im_x = img_w / 2
+            self.im_y = img_h / 2
+        elif self.is_fit:
             self.current_scale = min(ww / img_w, wh / img_h)
             self.im_x = img_w / 2
             self.im_y = img_h / 2
@@ -951,6 +1064,11 @@ class ImageViewer:
 
             # 使用 BILINEAR 加速交互期的拖动与缩放刷新
             resized_img = cropped.resize((int(dest_w), int(dest_h)), Image.Resampling.BILINEAR)
+            
+            if getattr(self, 'is_magnifying', False):
+                # 模拟轻微锐化：半径 0.5，强度约 30%
+                resized_img = resized_img.filter(ImageFilter.UnsharpMask(radius=0.5, percent=30, threshold=0))
+                
             self.tk_image = ImageTk.PhotoImage(resized_img)
 
             self.canvas.delete("all")
