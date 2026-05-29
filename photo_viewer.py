@@ -16,9 +16,9 @@ import rawpy
 class ImageViewer:
     def __init__(self, root):
         self.root = root
-        self.root.title("🐦 Water-redstart: the chirping viewer v3.0 (双平台)")
-        # 初始窗口大小
-        self.root.geometry("900x700")
+        self.root.title("🐦 Water-redstart: the chirping viewer v3.1 (双平台)")
+        # 初始窗口大小（加宽以容纳顶栏完整快捷键指引）
+        self.root.geometry("1050x750")
 
         # 增加可配置的 UI 颜色和大小属性 (更清新的鸟类主题色)
         self.window_bg_color = "#E8F5E9" # 极其淡的森林绿
@@ -94,6 +94,7 @@ class ImageViewer:
         self.hotkey_arrow_up = 'Up'
         self.hotkey_arrow_down = 'Down'
         self.hotkey_magnify = 'space'
+        self.hotkey_properties = 'i'
         
         self._current_bind_next = None
         self._current_bind_copy = None
@@ -104,6 +105,7 @@ class ImageViewer:
         self._current_bind_arrow_up = None
         self._current_bind_arrow_down = None
         self._current_bind_magnify = None
+        self._current_bind_properties = None
 
         self.create_menu()
         self.apply_bindings()
@@ -236,7 +238,7 @@ class ImageViewer:
                 messagebox.showwarning("哎呀", "孵化失败，小鸟去哪了？文件夹里似乎没有照片呢！")
                 self.show_empty_state()
                 self.top_info_label.config(text="🐾 欢迎！请挑选一个装满照片的文件夹开始吧~")
-                self.root.title("🐦 Water-redstart: the chirping viewer v3.0")
+                self.root.title("🐦 Water-redstart: the chirping viewer v3.1")
 
     def show_subfolder_dialog(self, parent_folder, subdirs):
         dialog = tk.Toplevel(self.root)
@@ -275,7 +277,7 @@ class ImageViewer:
             dialog.destroy()
             self.show_empty_state()
             self.top_info_label.config(text="🐾 欢迎！请挑选一个装满照片的文件夹开始吧~")
-            self.root.title("🐦 Water-redstart: the chirping viewer v3.0")
+            self.root.title("🐦 Water-redstart: the chirping viewer v3.1")
 
         # 双击列表项直接打开
         listbox.bind("<Double-1>", lambda e: on_open())
@@ -326,12 +328,13 @@ class ImageViewer:
             f"- 按 复制 ({self.hotkey_clip.upper()} / {self.hotkey_arrow_down.title()}): 将当前照片复制到系统剪贴板\n"
             f"- 按 返回上图 ({self.hotkey_arrow_left.title()}): 翻到上一张图\n"
             f"- 按住 放大 ({self.hotkey_magnify.title()}): 在按住期间中心放大对焦\n"
+            f"- 按 属性 ({self.hotkey_properties.upper()}): 显示当前图片的详细属性信息\n"
             "- F11: 切换全屏\n"
             "- Esc: 退出全屏"
         ))
         help_menu.add_separator()
         help_menu.add_command(label="关于", command=lambda: messagebox.showinfo(
-            "关于", "🐦 Water-redstart: the chirping viewer\n\n版本：3.0 (双平台)\n作者：Crowpaw@2026\n鸣谢：ARC, Untribiium, ~ris, 蓝嘴红鹊, 欧鹭风云, 瑞瑞的, 白鹡鸰, 灰喜鹊, 碳酸, 逢青, Gemini 3.1 Pro\n于一"
+            "关于", "🐦 Water-redstart: the chirping viewer\n\n版本：3.1 (双平台)\n作者：Crowpaw@2026\n鸣谢：ARC, Untribiium, ~ris, 蓝嘴红鹊, 欧鹭风云, 瑞瑞的, 白鹡鸰, 灰喜鹊, 碳酸, 逢青, Gemini 3.1 Pro, GPT-5.5, DeepSeek-V4-Pro\n于一"
         ))
         self.menubar.add_cascade(label="帮助", menu=help_menu)
         
@@ -354,6 +357,12 @@ class ImageViewer:
                 self.root.unbind(f"<KeyPress-{old_mag}>")
                 self.root.unbind(f"<KeyRelease-{old_mag}>")
             except tk.TclError: pass
+
+        old_props = getattr(self, '_current_bind_properties', None)
+        if old_props:
+            try:
+                self.root.unbind(f"<{old_props}>")
+            except tk.TclError: pass
             
         # 绑定新的热键
         self.root.bind(f"<{self.hotkey_next}>", self.next_image)
@@ -369,6 +378,8 @@ class ImageViewer:
         self.root.bind(f"<KeyPress-{self.hotkey_magnify}>", self.on_space_press)
         self.root.bind(f"<KeyRelease-{self.hotkey_magnify}>", self.on_space_release)
         
+        self.root.bind(f"<{self.hotkey_properties}>", self.show_image_properties)
+        
         self._current_bind_next = self.hotkey_next
         self._current_bind_copy = self.hotkey_copy
         self._current_bind_undo = self.hotkey_undo
@@ -378,6 +389,7 @@ class ImageViewer:
         self._current_bind_arrow_up = self.hotkey_arrow_up
         self._current_bind_arrow_down = self.hotkey_arrow_down
         self._current_bind_magnify = self.hotkey_magnify
+        self._current_bind_properties = self.hotkey_properties
 
         self.update_title()
 
@@ -408,13 +420,14 @@ class ImageViewer:
     def update_title(self):
         select_count = self.get_select_count()
         folder_name = os.path.basename(self.current_dir.rstrip('/\\')) if self.current_dir else '未选择目录'
-        base_title_prefix = f"🐦 Water-redstart: the chirping viewer v3.0 (双平台) - {folder_name}"
+        base_title_prefix = f"🐦 Water-redstart: the chirping viewer v3.1 (双平台) - {folder_name}"
         
         info_help = (f"🕊️ 跳: [{self.hotkey_next.upper()}/{self.hotkey_arrow_right.title()}]  "
                      f"💖 挑: [{self.hotkey_copy.upper()}/{self.hotkey_arrow_up.title()}]  "
                      f"⏪ 撤: [{self.hotkey_undo.upper()}]  "
                      f"📋 剪贴: [{self.hotkey_clip.upper()}/{self.hotkey_arrow_down.title()}]  "
-                     f"🔍 放大: [{self.hotkey_magnify.title()}]")
+                     f"🔍 放大: [{self.hotkey_magnify.title()}]  "
+                     f"🪪 属性: [{self.hotkey_properties.upper()}]")
 
         if self.images and self.index < len(self.images):
             img_name = self.images[self.index]
@@ -434,7 +447,7 @@ class ImageViewer:
     def show_hotkey_dialog(self):
         dialog = tk.Toplevel(self.root)
         dialog.title("🎈 自定义魔法设置 🎈")
-        dialog.geometry("450x620")
+        dialog.geometry("450x680")
         dialog.configure(bg="#FFECD2")
         dialog.transient(self.root)  # 置于主窗口之上
         dialog.grab_set()  # 模态对话框
@@ -451,6 +464,7 @@ class ImageViewer:
         dialog.temp_arrow_up = getattr(self, 'hotkey_arrow_up', 'Up')
         dialog.temp_arrow_down = getattr(self, 'hotkey_arrow_down', 'Down')
         dialog.temp_magnify = getattr(self, 'hotkey_magnify', 'space')
+        dialog.temp_properties = getattr(self, 'hotkey_properties', 'i')
         dialog.temp_color = self.ui_bg_color
         dialog.temp_keep_top_bar = tk.BooleanVar(value=self.keep_top_bar_in_fullscreen)
 
@@ -506,10 +520,14 @@ class ImageViewer:
         btn_magnify = tk.Button(dialog, text=f"[{getattr(self, 'hotkey_magnify', 'space')}] (点击修改)", width=18, bg="#FFFFFF", command=lambda: prompt_key(btn_magnify, 'temp_magnify'))
         btn_magnify.grid(row=9, column=1, sticky="w")
 
-        tk.Label(dialog, text="🪺 入巢文件夹名:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=10, column=0, padx=20, pady=5, sticky="e")
+        tk.Label(dialog, text="🪪 属性快捷键:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=10, column=0, padx=20, pady=5, sticky="e")
+        btn_properties = tk.Button(dialog, text=f"[{getattr(self, 'hotkey_properties', 'i')}] (点击修改)", width=18, bg="#FFFFFF", command=lambda: prompt_key(btn_properties, 'temp_properties'))
+        btn_properties.grid(row=10, column=1, sticky="w")
+
+        tk.Label(dialog, text="🪺 入巢文件夹名:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=11, column=0, padx=20, pady=5, sticky="e")
         
         folder_frame = tk.Frame(dialog, bg="#FFECD2")
-        folder_frame.grid(row=10, column=1, sticky="w")
+        folder_frame.grid(row=11, column=1, sticky="w")
         
         entry_folder = tk.Entry(folder_frame, width=15, font=("Arial", 11), justify="center", bd=2, relief=tk.SUNKEN)
         entry_folder.insert(0, self.select_folder_name)
@@ -531,18 +549,18 @@ class ImageViewer:
                 dialog.temp_color = c[1]
                 btn_color.config(bg=c[1])
 
-        tk.Label(dialog, text="🎨 顶部横幅颜色:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=11, column=0, padx=20, pady=5, sticky="e")
+        tk.Label(dialog, text="🎨 顶部横幅颜色:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=12, column=0, padx=20, pady=5, sticky="e")
         btn_color = tk.Button(dialog, text=" 选择颜色 ", width=18, bg=self.ui_bg_color, command=choose_color)
-        btn_color.grid(row=11, column=1, sticky="w")
+        btn_color.grid(row=12, column=1, sticky="w")
 
-        tk.Label(dialog, text="🔠 顶部文字大小:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=12, column=0, padx=20, pady=5, sticky="e")
+        tk.Label(dialog, text="🔠 顶部文字大小:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=13, column=0, padx=20, pady=5, sticky="e")
         scale_size = tk.Scale(dialog, from_=6, to=24, orient=tk.HORIZONTAL, bg="#FFECD2", highlightthickness=0, length=140)
         scale_size.set(self.ui_font_size)
-        scale_size.grid(row=12, column=1, sticky="w")
+        scale_size.grid(row=13, column=1, sticky="w")
         
-        tk.Label(dialog, text="📺 全屏选项:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=13, column=0, padx=20, pady=5, sticky="e")
+        tk.Label(dialog, text="📺 全屏选项:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=14, column=0, padx=20, pady=5, sticky="e")
         chk_top_bar = tk.Checkbutton(dialog, text="全屏时保留上方菜单栏", variable=dialog.temp_keep_top_bar, bg="#FFECD2", font=("Microsoft YaHei", 10))
-        chk_top_bar.grid(row=13, column=1, sticky="w")
+        chk_top_bar.grid(row=14, column=1, sticky="w")
         
         def save():
             new_folder = entry_folder.get().strip()
@@ -550,7 +568,7 @@ class ImageViewer:
             if not new_folder:
                 messagebox.showwarning("哎呀", "文件夹名不能为空哦！", parent=dialog)
                 return
-            if len(set([dialog.temp_next, dialog.temp_copy, dialog.temp_undo, dialog.temp_clip, dialog.temp_magnify])) < 5:
+            if len(set([dialog.temp_next, dialog.temp_copy, dialog.temp_undo, dialog.temp_clip, dialog.temp_magnify, dialog.temp_properties])) < 6:
                 messagebox.showwarning("哎呀", "不同功能的热键不能重复！", parent=dialog)
                 return
             if len(set([dialog.temp_arrow_left, dialog.temp_arrow_right, dialog.temp_arrow_up, dialog.temp_arrow_down])) < 4:
@@ -562,6 +580,7 @@ class ImageViewer:
             self.hotkey_undo = dialog.temp_undo
             self.hotkey_clip = dialog.temp_clip
             self.hotkey_magnify = dialog.temp_magnify
+            self.hotkey_properties = dialog.temp_properties
             self.hotkey_arrow_left = dialog.temp_arrow_left
             self.hotkey_arrow_right = dialog.temp_arrow_right
             self.hotkey_arrow_up = dialog.temp_arrow_up
@@ -574,7 +593,7 @@ class ImageViewer:
             self.ui_font_size = scale_size.get()
             self.top_frame.config(bg=self.ui_bg_color)
             self.top_info_label.config(bg=self.ui_bg_color, font=("Microsoft YaHei", self.ui_font_size))
-            self.update_top_info()
+            self.update_title()
             
             # 重新生成菜单（更新帮助说明里的热键显示）
             self.create_menu()
@@ -594,7 +613,7 @@ class ImageViewer:
             dialog.destroy()
             
         btn_save = tk.Button(dialog, text="🎀 保存设置", command=save, width=20, font=("Microsoft YaHei", 11, "bold"), bg="#FFB6C1", fg="white", activebackground="#FF69B4", bd=0, cursor="hand2")
-        btn_save.grid(row=14, column=0, columnspan=2, pady=20)
+        btn_save.grid(row=15, column=0, columnspan=2, pady=20)
 
     def get_global_config_path(self):
         return os.path.expanduser("~/.birdviewer_global.json")
@@ -909,7 +928,7 @@ class ImageViewer:
         if not self.images:
             self.show_empty_state()
             self.top_info_label.config(text="🐾 欢迎！请挑选一个装满照片的文件夹开始吧~")
-            self.root.title("🐦 Water-redstart: the chirping viewer v3.0")
+            self.root.title("🐦 Water-redstart: the chirping viewer v3.1")
             return
             
         # 2. 确认有图片后，再保存当前合法的路径到配置文件中
@@ -1119,16 +1138,16 @@ class ImageViewer:
                         # 复制图片并保留其原始的元信息(拍照时间等)
                         shutil.copy2(src, dst)
                         print(f"🎉 成功捕捉: {fname} 已飞入 {select_folder} 鸟巢~ 🦉")
-                    
-                    # 播放✨鸟鸣✨的音效 (使用快速高低频模拟小鸟叽叽声, win专属; Mac使用系统bell)
-                    if sys.platform == 'win32':
-                        winsound.Beep(3000, 30)
-                        winsound.Beep(3800, 30)
-                        winsound.Beep(4500, 50)
-                    else:
-                        self.root.after(0, self.root.bell)
                 except Exception as e:
                     print(f"哎呀，小鸟跑掉啦，复制文件失败:\n{e}")
+
+            # 立即播放音效（主线程，按下即响，避免音画不同步）
+            if sys.platform == 'win32':
+                winsound.Beep(3000, 30)
+                winsound.Beep(3800, 30)
+                winsound.Beep(4500, 50)
+            else:
+                self.root.bell()
 
             # 立即写入历史记录并执行后台拷贝线程
             self.history.append({'action': 'copy', 'index': self.index, 'dst_list': dst_list})
@@ -1176,6 +1195,273 @@ class ImageViewer:
             print(f"📋 成功将 {self.images[self.index]} 复制到剪贴板。")
         except Exception as e:
             messagebox.showerror("哎呀", f"图片复制到剪贴板失败:\n{e}")
+
+    def show_image_properties(self, event=None):
+        """显示当前图片的属性信息，支持多图时弹出选择框"""
+        if not self.images or self.index >= len(self.images):
+            return
+        
+        img_name = self.images[self.index]
+        group_files = self.image_groups.get(img_name, [img_name])
+        
+        # 如果有多张关联图片（如 JPG+RAW），弹出选择框
+        if len(group_files) > 1:
+            self._show_multi_properties_dialog(group_files)
+        else:
+            img_path = os.path.join(self.current_dir, group_files[0])
+            self._show_single_properties(img_path)
+
+    def _show_multi_properties_dialog(self, group_files):
+        """弹出可爱的对话框让用户选择查看哪张图片的属性"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("📋 小鸟信息卡")
+        sw = self.root.winfo_screenwidth()
+        sh = self.root.winfo_screenheight()
+        dlg_w, dlg_h = 420, 380
+        x = (sw - dlg_w) // 2
+        y = (sh - dlg_h) // 2
+        dialog.geometry(f"{dlg_w}x{dlg_h}+{x}+{y}")
+        dialog.configure(bg="#FFF3E0")
+        dialog.transient(self.root)
+        # 不使用 grab_set()，让主窗口快捷键仍可响应
+        
+        # 标题
+        tk.Label(dialog, text="🐣 检测到筑巢文件组！", font=("Microsoft YaHei", 13, "bold"), 
+                 bg="#FFF3E0", fg="#E65100").pack(pady=(15, 5))
+        tk.Label(dialog, text="当前照片有多个同名的格式版本，\n你想查看哪只小鸟的身份信息呢？", 
+                 font=("Microsoft YaHei", 10), bg="#FFF3E0", fg="#6D4C41").pack(pady=(0, 15))
+        
+        # 文件列表区域
+        list_frame = tk.Frame(dialog, bg="#FFF3E0")
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=30, pady=5)
+        
+        for fname in sorted(group_files):
+            fpath = os.path.join(self.current_dir, fname)
+            ext = os.path.splitext(fname)[1].upper().lstrip('.')
+            size_str = ""
+            try:
+                size_bytes = os.path.getsize(fpath)
+                if size_bytes >= 1024*1024:
+                    size_str = f"{size_bytes/(1024*1024):.1f} MB"
+                else:
+                    size_str = f"{size_bytes/1024:.1f} KB"
+            except:
+                size_str = "未知"
+            
+            # 文件图标
+            if ext.lower() in ('jpg', 'jpeg', 'png', 'webp', 'bmp', 'gif'):
+                icon = "🖼️"
+            elif ext.lower() in ('arw', 'sr2', 'srf', 'crw', 'cr2', 'cr3', 'nef', 'nrw', 'dng', 'orf', 'rw2', 'raf', 'pef'):
+                icon = "📸"
+            else:
+                icon = "📄"
+            
+            btn_frame = tk.Frame(list_frame, bg="#FFF3E0")
+            btn_frame.pack(fill=tk.X, pady=4)
+            
+            btn = tk.Button(btn_frame, 
+                           text=f"  {icon}  {fname}    [{size_str}]    点击查看 →", 
+                           font=("Microsoft YaHei", 10),
+                           bg="#FFE0B2", fg="#4E342E",
+                           activebackground="#FFCC80",
+                           bd=0, cursor="hand2",
+                           anchor="w", padx=15, pady=8,
+                           command=lambda p=fpath: self._show_single_properties(p, dialog))
+            btn.pack(fill=tk.X)
+        
+        # 底部取消按钮
+        tk.Button(dialog, text="🌸 先不看了", font=("Microsoft YaHei", 10, "bold"),
+                  bg="#BCAAA4", fg="white", bd=0, cursor="hand2",
+                  activebackground="#A1887F",
+                  padx=20, pady=6,
+                  command=dialog.destroy).pack(pady=(10, 15))
+
+    def _show_single_properties(self, img_path, parent_dialog=None):
+        """显示单张图片的详细属性"""
+        if parent_dialog:
+            parent_dialog.destroy()
+        
+        fname = os.path.basename(img_path)
+        ext = os.path.splitext(fname)[1].lower()
+        
+        # 收集属性信息
+        try:
+            stat = os.stat(img_path)
+            size_bytes = stat.st_size
+            mtime = stat.st_mtime
+        except:
+            size_bytes = 0
+            mtime = 0
+        
+        # 文件大小友好显示
+        if size_bytes >= 1024*1024:
+            size_str = f"{size_bytes/(1024*1024):.2f} MB ({size_bytes:,} 字节)"
+        else:
+            size_str = f"{size_bytes/1024:.2f} KB ({size_bytes:,} 字节)"
+        
+        # 修改时间
+        import datetime
+        mtime_str = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S") if mtime else "未知"
+        
+        # 图片尺寸 + EXIF拍摄时间
+        dims_str = "未知"
+        shooting_time_str = None
+        try:
+            from PIL import Image
+            with Image.open(img_path) as im:
+                dims_str = f"{im.size[0]} x {im.size[1]} 像素"
+                fmt = im.format or ext.upper().lstrip('.')
+                try:
+                    exif = im.getexif()
+                    if exif:
+                        for tag in (36867, 36868, 306):
+                            dt_str = exif.get(tag)
+                            if dt_str and isinstance(dt_str, str) and dt_str.strip():
+                                try:
+                                    dt = datetime.datetime.strptime(dt_str.strip(), "%Y:%m:%d %H:%M:%S")
+                                    shooting_time_str = dt.strftime("%Y-%m-%d %H:%M:%S")
+                                except:
+                                    shooting_time_str = dt_str.strip()
+                                break
+                except:
+                    pass
+        except:
+            fmt = ext.upper().lstrip('.')
+        
+        # 格式判定
+        raw_exts = ('.arw', '.sr2', '.srf', '.crw', '.cr2', '.cr3', '.nef', '.nrw', '.dng', '.orf', '.rw2', '.raf', '.pef')
+        if ext in raw_exts:
+            type_str = "📸 RAW 原始格式"
+        elif ext in ('.jpg', '.jpeg'):
+            type_str = "🖼️ JPEG 图像"
+        elif ext == '.png':
+            type_str = "🖼️ PNG 图像"
+        elif ext == '.webp':
+            type_str = "🖼️ WebP 图像"
+        elif ext == '.bmp':
+            type_str = "🖼️ BMP 位图"
+        elif ext == '.gif':
+            type_str = "🖼️ GIF 动图"
+        else:
+            type_str = f"📄 {ext.upper()} 文件"
+        
+        # 构建属性对话框（居中显示）
+        dlg = tk.Toplevel(self.root)
+        dlg.title(f"📋 {fname} 的身份卡")
+        sw = self.root.winfo_screenwidth()
+        sh = self.root.winfo_screenheight()
+        dlg_w, dlg_h = 520, 550
+        x = (sw - dlg_w) // 2
+        y = (sh - dlg_h) // 2
+        dlg.geometry(f"{dlg_w}x{dlg_h}+{x}+{y}")
+        dlg.configure(bg="#E8F5E9")
+        dlg.transient(self.root)
+        # 不使用 grab_set()，让主窗口快捷键仍可响应，且允许多张身份卡同时打开
+        
+        # 标题区
+        tk.Label(dlg, text="🐦 小鸟身份信息卡", font=("Microsoft YaHei", 14, "bold"),
+                 bg="#E8F5E9", fg="#2E7D32").pack(pady=(20, 5))
+        tk.Label(dlg, text=f"“{fname}”", font=("Microsoft YaHei", 11, "italic"),
+                 bg="#E8F5E9", fg="#388E3C").pack(pady=(0, 15))
+        
+        tk.Label(dlg, text="💡 下方文字可鼠标选中后 Ctrl+C 复制哦~", font=("Microsoft YaHei", 8),
+                 bg="#E8F5E9", fg="#999999").pack(pady=(0, 5))
+        
+        # 属性卡片区域
+        card_frame = tk.Frame(dlg, bg="#FFFFFF", relief=tk.GROOVE, bd=1)
+        card_frame.pack(fill=tk.BOTH, expand=True, padx=25, pady=0)
+        
+        props = [
+            ("📛  文件名", fname),
+            ("📐 图片尺寸", dims_str),
+            ("🏷 格式类型", type_str),
+            ("💾 文件大小", size_str),
+            ("📅 修改时间", mtime_str),
+        ]
+        if shooting_time_str:
+            props.append(("📷 拍摄时间", shooting_time_str))
+        props.append(("📁 完整路径", img_path))
+        
+        def _make_val_widget(parent, value, bg_color, is_long):
+            if is_long:
+                w = tk.Text(parent, font=("Consolas", 8), fg="#333333",
+                           bg=bg_color, wrap=tk.WORD, height=2,
+                           relief=tk.FLAT, borderwidth=0, padx=8, pady=4)
+                w.insert("1.0", value)
+                w.config(state=tk.DISABLED)
+                return w
+            else:
+                w = tk.Entry(parent, font=("Consolas", 9), fg="#333333",
+                            bg=bg_color, relief=tk.FLAT, borderwidth=0,
+                            readonlybackground=bg_color)
+                w.insert(0, value)
+                w.config(state="readonly")
+                return w
+        
+        for i, (label, value) in enumerate(props):
+            bg_color = "#FFFFFF" if i % 2 == 0 else "#F1F8E9"
+            row_frame = tk.Frame(card_frame, bg=bg_color)
+            row_frame.pack(fill=tk.X)
+            
+            tk.Label(row_frame, text=label, font=("Microsoft YaHei", 10, "bold"),
+                     bg=bg_color, fg="#33691E", width=14, anchor="e",
+                     padx=10, pady=6).pack(side=tk.LEFT)
+            
+            is_long = (label == "📁 完整路径")
+            val_widget = _make_val_widget(row_frame, value, bg_color, is_long)
+            val_widget.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8), pady=4)
+        
+        # 复制拍摄时间按钮区
+        copy_frame = tk.Frame(dlg, bg="#E8F5E9")
+        copy_frame.pack(fill=tk.X, padx=25, pady=(10, 0))
+        
+        time_to_copy = shooting_time_str or mtime_str
+        copy_btn = tk.Button(copy_frame, text="📋 复制拍摄时间",
+                            font=("Microsoft YaHei", 10, "bold"),
+                            bg="#FFE0B2", fg="#4E342E", bd=0, cursor="hand2",
+                            activebackground="#FFCC80", padx=18, pady=7)
+        copy_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        copy_status = tk.Label(copy_frame, text="", font=("Microsoft YaHei", 9),
+                              bg="#E8F5E9", fg="#666666")
+        copy_status.pack(side=tk.LEFT)
+        
+        def do_copy_time():
+            try:
+                dlg.clipboard_clear()
+                dlg.clipboard_append(time_to_copy)
+                if sys.platform == 'win32':
+                    try:
+                        winsound.Beep(2400, 60)
+                        winsound.Beep(3000, 80)
+                    except:
+                        pass
+                copy_btn.config(text="✅ 已复制到剪贴板~", bg="#A5D6A7", activebackground="#81C784")
+                copy_status.config(text=f"✔ {time_to_copy}", fg="#2E7D32")
+                dlg.after(1500, lambda: (copy_btn.config(text="📋 复制拍摄时间", bg="#FFE0B2", activebackground="#FFCC80"), copy_status.config(text="")))
+            except Exception:
+                copy_btn.config(text="😢 复制失败了…", bg="#FFCDD2", activebackground="#EF9A9A")
+                copy_status.config(text="请手动选中上方文字后 Ctrl+C 复制", fg="#C62828")
+                dlg.after(2000, lambda: (copy_btn.config(text="📋 复制拍摄时间", bg="#FFE0B2", activebackground="#FFCC80"), copy_status.config(text="")))
+        
+        copy_btn.config(command=do_copy_time)
+        
+        source_note = "🕐 EXIF原始拍摄时间" if shooting_time_str else "🕐 文件修改时间（无EXIF数据）"
+        tk.Label(copy_frame, text=source_note, font=("Microsoft YaHei", 8),
+                 bg="#E8F5E9", fg="#AAAAAA").pack(side=tk.RIGHT)
+        
+        # 关闭按钮
+        tk.Button(dlg, text="🐤 知道啦，飞走~", font=("Microsoft YaHei", 11, "bold"),
+                  bg="#81C784", fg="white", bd=0, cursor="hand2",
+                  activebackground="#66BB6A", padx=25, pady=8,
+                  command=dlg.destroy).pack(pady=(10, 20))
+        
+        if sys.platform == 'win32':
+            try:
+                winsound.Beep(1800, 40)
+                winsound.Beep(2200, 60)
+            except:
+                pass
 
     def undo_action(self, event=None):
         if not self.history:
