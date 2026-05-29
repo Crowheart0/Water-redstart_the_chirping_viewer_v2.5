@@ -1,7 +1,7 @@
 ﻿import os
 import shutil
 import tkinter as tk
-from tkinter import messagebox, colorchooser
+from tkinter import messagebox, colorchooser, ttk
 from PIL import Image, ImageTk, ImageOps, ImageFilter
 import sys
 import subprocess
@@ -12,11 +12,17 @@ import json
 import io
 import threading
 import rawpy
+import urllib.request
+import urllib.error
+import tempfile
+import webbrowser
+
+CURRENT_VERSION = "3.2"
 
 class ImageViewer:
     def __init__(self, root):
         self.root = root
-        self.root.title("🐦 Water-redstart: the chirping viewer v3.1 (双平台)")
+        self.root.title("🐦 Water-redstart: the chirping viewer v3.2 (双平台)")
         # 初始窗口大小（加宽以容纳顶栏完整快捷键指引）
         self.root.geometry("1050x750")
 
@@ -49,6 +55,7 @@ class ImageViewer:
         # 尝试读取上一次的进度配置
         self.config_file = os.path.join(self.current_dir, ".birdviewer_config.json")
         self.image_quality = tk.IntVar(value=8000)
+        self.ignored_version = None  # 用户忽略的更新版本
         self.load_config()
         
         # 添加一个顶部控制面板背景 (缩小高度)
@@ -238,7 +245,7 @@ class ImageViewer:
                 messagebox.showwarning("哎呀", "孵化失败，小鸟去哪了？文件夹里似乎没有照片呢！")
                 self.show_empty_state()
                 self.top_info_label.config(text="🐾 欢迎！请挑选一个装满照片的文件夹开始吧~")
-                self.root.title("🐦 Water-redstart: the chirping viewer v3.1")
+                self.root.title("🐦 Water-redstart: the chirping viewer v3.2")
 
     def show_subfolder_dialog(self, parent_folder, subdirs):
         dialog = tk.Toplevel(self.root)
@@ -277,7 +284,7 @@ class ImageViewer:
             dialog.destroy()
             self.show_empty_state()
             self.top_info_label.config(text="🐾 欢迎！请挑选一个装满照片的文件夹开始吧~")
-            self.root.title("🐦 Water-redstart: the chirping viewer v3.1")
+            self.root.title("🐦 Water-redstart: the chirping viewer v3.2")
 
         # 双击列表项直接打开
         listbox.bind("<Double-1>", lambda e: on_open())
@@ -333,8 +340,9 @@ class ImageViewer:
             "- Esc: 退出全屏"
         ))
         help_menu.add_separator()
+        help_menu.add_command(label="🕊️ 检查更新...", command=lambda: threading.Thread(target=self.check_for_updates, daemon=True).start())
         help_menu.add_command(label="关于", command=lambda: messagebox.showinfo(
-            "关于", "🐦 Water-redstart: the chirping viewer\n\n版本：3.1 (双平台)\n作者：Crowpaw@2026\n鸣谢：ARC, Untribiium, ~ris, 蓝嘴红鹊, 欧鹭风云, 瑞瑞的, 白鹡鸰, 灰喜鹊, 碳酸, 逢青, Gemini 3.1 Pro, GPT-5.5, DeepSeek-V4-Pro\n于一"
+            "关于", "🐦 Water-redstart: the chirping viewer\n\n版本：3.2 (双平台)\n作者：Crowpaw@2026\n鸣谢：ARC, Untribiium, ~ris, 蓝嘴红鹊, 欧鹭风云, 瑞瑞的, 白鹡鸰, 灰喜鹊, 碳酸, 逢青, Gemini 3.1 Pro, GPT-5.5, DeepSeek-V4-Pro, YIP\n于一"
         ))
         self.menubar.add_cascade(label="帮助", menu=help_menu)
         
@@ -420,7 +428,7 @@ class ImageViewer:
     def update_title(self):
         select_count = self.get_select_count()
         folder_name = os.path.basename(self.current_dir.rstrip('/\\')) if self.current_dir else '未选择目录'
-        base_title_prefix = f"🐦 Water-redstart: the chirping viewer v3.1 (双平台) - {folder_name}"
+        base_title_prefix = f"🐦 Water-redstart: the chirping viewer v3.2 (双平台) - {folder_name}"
         
         info_help = (f"🕊️ 跳: [{self.hotkey_next.upper()}/{self.hotkey_arrow_right.title()}]  "
                      f"💖 挑: [{self.hotkey_copy.upper()}/{self.hotkey_arrow_up.title()}]  "
@@ -630,6 +638,7 @@ class ImageViewer:
                     self.keep_top_bar_in_fullscreen = config.get("keep_top_bar_in_fullscreen", False)
                     self.image_quality.set(config.get("image_quality", 8000))
                     self.select_folder_name = config.get("select_folder_name", "SELECT")
+                    self.ignored_version = config.get("ignored_version", None)
             except Exception:
                 pass
 
@@ -654,7 +663,8 @@ class ImageViewer:
                         "last_image": self.images[self.index],
                         "keep_top_bar_in_fullscreen": getattr(self, 'keep_top_bar_in_fullscreen', False),
                         "image_quality": self.image_quality.get(),
-                        "select_folder_name": self.select_folder_name
+                        "select_folder_name": self.select_folder_name,
+                        "ignored_version": getattr(self, 'ignored_version', None)
                     }, f)
             except Exception:
                 pass
@@ -928,7 +938,7 @@ class ImageViewer:
         if not self.images:
             self.show_empty_state()
             self.top_info_label.config(text="🐾 欢迎！请挑选一个装满照片的文件夹开始吧~")
-            self.root.title("🐦 Water-redstart: the chirping viewer v3.1")
+            self.root.title("🐦 Water-redstart: the chirping viewer v3.2")
             return
             
         # 2. 确认有图片后，再保存当前合法的路径到配置文件中
@@ -1303,30 +1313,67 @@ class ImageViewer:
         import datetime
         mtime_str = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S") if mtime else "未知"
         
-        # 图片尺寸 + EXIF拍摄时间
+        # 图片尺寸 + EXIF拍摄时间（RAW文件通过rawpy缩略图读取EXIF）
         dims_str = "未知"
         shooting_time_str = None
+        fmt = ext.upper().lstrip('.')
+        
+        def _try_read_exif_from_pil(img_obj):
+            """从PIL图像对象读取EXIF拍摄时间，返回(datetime_str, fmt)"""
+            nonlocal fmt
+            try:
+                fmt = img_obj.format or ext.upper().lstrip('.')
+                exif = img_obj.getexif()
+                if exif:
+                    for tag in (36867, 36868, 306):
+                        dt_str = exif.get(tag)
+                        if dt_str and isinstance(dt_str, str) and dt_str.strip():
+                            try:
+                                dt = datetime.datetime.strptime(dt_str.strip(), "%Y:%m:%d %H:%M:%S")
+                                return dt.strftime("%Y-%m-%d %H:%M:%S")
+                            except:
+                                return dt_str.strip()
+            except:
+                pass
+            return None
+        
+        # 先尝试 PIL 直接打开（适用于JPG/PNG/部分RAW）
         try:
             from PIL import Image
             with Image.open(img_path) as im:
                 dims_str = f"{im.size[0]} x {im.size[1]} 像素"
-                fmt = im.format or ext.upper().lstrip('.')
-                try:
-                    exif = im.getexif()
-                    if exif:
-                        for tag in (36867, 36868, 306):
-                            dt_str = exif.get(tag)
-                            if dt_str and isinstance(dt_str, str) and dt_str.strip():
-                                try:
-                                    dt = datetime.datetime.strptime(dt_str.strip(), "%Y:%m:%d %H:%M:%S")
-                                    shooting_time_str = dt.strftime("%Y-%m-%d %H:%M:%S")
-                                except:
-                                    shooting_time_str = dt_str.strip()
-                                break
-                except:
-                    pass
+                shooting_time_str = _try_read_exif_from_pil(im)
         except:
-            fmt = ext.upper().lstrip('.')
+            pass
+        
+        # PIL 失败或未读取到EXIF时，尝试通过rawpy缩略图读取（RAW专属）
+        if shooting_time_str is None or dims_str == "未知":
+            raw_exts = ('.arw', '.sr2', '.srf', '.crw', '.cr2', '.cr3', '.nef', '.nrw', '.dng', '.orf', '.rw2', '.raf', '.pef')
+            if ext in raw_exts:
+                try:
+                    with rawpy.imread(img_path) as raw:
+                        # 获取尺寸
+                        if dims_str == "未知":
+                            try:
+                                dims_str = f"{raw.sizes.width} x {raw.sizes.height} 像素"
+                            except:
+                                try:
+                                    dims_str = f"{raw.sizes.raw_width} x {raw.sizes.raw_height} 像素 (RAW)"
+                                except:
+                                    pass
+                        # 通过JPEG缩略图读取EXIF
+                        if shooting_time_str is None:
+                            try:
+                                thumb = raw.extract_thumb()
+                                if thumb.format == rawpy.ThumbFormat.JPEG:
+                                    from PIL import Image as PILImage
+                                    thumb_img = PILImage.open(io.BytesIO(thumb.data))
+                                    shooting_time_str = _try_read_exif_from_pil(thumb_img)
+                                    thumb_img.close()
+                            except:
+                                pass
+                except Exception as e:
+                    print(f"rawpy读取RAW信息失败: {e}")
         
         # 格式判定
         raw_exts = ('.arw', '.sr2', '.srf', '.crw', '.cr2', '.cr3', '.nef', '.nrw', '.dng', '.orf', '.rw2', '.raf', '.pef')
@@ -1504,6 +1551,273 @@ class ImageViewer:
         self.top_frame.pack(fill=tk.X, before=self.img_frame)
         return "break"
 
+    def _parse_version(self, ver_str):
+        """将 'v3.2' 或 '3.2' 解析为 (3, 2) 元组"""
+        v = ver_str.strip().lstrip('v').lstrip('V')
+        parts = []
+        for p in v.split('.'):
+            try:
+                parts.append(int(p))
+            except:
+                parts.append(0)
+        return tuple(parts) if parts else (0,)
+
+    def check_for_updates(self, silent=False):
+        """后台线程：检查 GitHub 最新 release。silent=True 时只在有更新时弹窗。"""
+        try:
+            url = "https://api.github.com/repos/Crowheart0/Water-redstart_the_chirping_viewer/releases?per_page=1"
+            req = urllib.request.Request(url, headers={"User-Agent": "Water-redstart-Viewer"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                releases = json.loads(resp.read().decode())
+            
+            if not releases or not isinstance(releases, list) or len(releases) == 0:
+                return
+            data = releases[0]  # 取最新一条（含 prerelease）
+            
+            tag = data.get("tag_name", "")
+            latest_ver = self._parse_version(tag)
+            current_ver = self._parse_version(CURRENT_VERSION)
+            
+            if latest_ver > current_ver:
+                # 检查是否被用户忽略
+                if self.ignored_version and self._parse_version(self.ignored_version) >= latest_ver:
+                    return
+                # 找到 .exe 或 .zip 下载链接
+                download_url = None
+                asset_name = None
+                for asset in data.get("assets", []):
+                    name = asset.get("name", "")
+                    url_dl = asset.get("browser_download_url", "")
+                    if name.lower().endswith('.exe') or name.lower().endswith('.zip'):
+                        download_url = url_dl
+                        asset_name = name
+                        break
+                # 如果没有 asset，用 zipball
+                if not download_url:
+                    download_url = data.get("zipball_url", "")
+                    asset_name = f"Water-redstart_{tag}.zip"
+                
+                release_notes = data.get("body", "")[:200]
+                release_url = data.get("html_url", "")
+                
+                self.root.after(0, lambda: self._show_update_dialog(
+                    tag, release_notes, download_url, asset_name, release_url))
+            else:
+                if not silent:
+                    # 用户手动触发的检查，告知已是最新
+                    self.root.after(0, lambda t=tag: self._show_up_to_date_dialog(t))
+        except Exception as e:
+            self.root.after(0, lambda: messagebox.showwarning(
+                "哎呀", f"检查更新失败，小鸟迷路了…\n\n{str(e)[:100]}\n\n请检查网络连接后重试~"))
+
+    def _show_up_to_date_dialog(self, tag):
+        """可爱的"已是最新"对话框"""
+        dlg = tk.Toplevel(self.root)
+        dlg.title("🐣 已是最新版本")
+        dlg_w, dlg_h = 380, 240
+        sw = dlg.winfo_screenwidth()
+        sh = dlg.winfo_screenheight()
+        dlg.geometry(f"{dlg_w}x{dlg_h}+{(sw-dlg_w)//2}+{(sh-dlg_h)//2}")
+        dlg.configure(bg="#E8F5E9")
+        dlg.transient(self.root)
+        dlg.grab_set()
+        
+        tk.Label(dlg, text="🌿 小鸟巢穴一切安好~", font=("Microsoft YaHei", 14, "bold"),
+                 bg="#E8F5E9", fg="#2E7D32").pack(pady=(25, 10))
+        tk.Label(dlg, text=f"你已经是最新版本啦！\n\n🪺 当前版本：{CURRENT_VERSION}\n🕊️ 线上版本：{tag}",
+                 font=("Microsoft YaHei", 11), bg="#E8F5E9", fg="#33691E").pack(pady=(0, 15))
+        tk.Button(dlg, text="🐤 知道啦，飞走~", font=("Microsoft YaHei", 11, "bold"),
+                  bg="#81C784", fg="white", bd=0, cursor="hand2",
+                  activebackground="#66BB6A", padx=25, pady=8,
+                  command=dlg.destroy).pack(pady=(0, 15))
+        
+        if sys.platform == 'win32':
+            try:
+                winsound.Beep(1800, 40)
+                winsound.Beep(2200, 60)
+            except:
+                pass
+
+    def _show_update_dialog(self, tag, notes, download_url, asset_name, release_url):
+        """显示可爱的更新提示对话框"""
+        dlg = tk.Toplevel(self.root)
+        dlg.title("🐣 发现新版本！")
+        dlg_w, dlg_h = 540, 480
+        sw = dlg.winfo_screenwidth()
+        sh = dlg.winfo_screenheight()
+        dlg.geometry(f"{dlg_w}x{dlg_h}+{(sw-dlg_w)//2}+{(sh-dlg_h)//2}")
+        dlg.configure(bg="#FFF8E1")
+        dlg.transient(self.root)
+        dlg.grab_set()
+        
+        # 标题
+        tk.Label(dlg, text="🐣 小鸟发现了新巢穴！", font=("Microsoft YaHei", 14, "bold"),
+                 bg="#FFF8E1", fg="#E65100").pack(pady=(20, 5))
+        tk.Label(dlg, text=f"🌿 新版本 {tag} 已经发布啦~\n你现在的版本是 {CURRENT_VERSION}",
+                 font=("Microsoft YaHei", 11), bg="#FFF8E1", fg="#4E342E").pack(pady=(5, 10))
+        
+        # 更新内容预览
+        if notes.strip():
+            preview = notes.replace('\r', '')[:180]
+            note_frame = tk.Frame(dlg, bg="#FFF3E0", relief=tk.GROOVE, bd=1)
+            note_frame.pack(fill=tk.BOTH, expand=True, padx=25, pady=5)
+            tk.Label(note_frame, text="📝 更新内容：", font=("Microsoft YaHei", 9, "bold"),
+                     bg="#FFF3E0", fg="#BF360C", anchor="w").pack(padx=10, pady=(8, 0), anchor="w")
+            tk.Label(note_frame, text=preview, font=("Microsoft YaHei", 8),
+                     bg="#FFF3E0", fg="#5D4037", anchor="w", justify=tk.LEFT,
+                     wraplength=420).pack(padx=10, pady=(2, 8), anchor="w")
+        
+        # 按钮区（两行排列，更自然）
+        btn_frame1 = tk.Frame(dlg, bg="#FFF8E1")
+        btn_frame1.pack(pady=(15, 5))
+        btn_frame2 = tk.Frame(dlg, bg="#FFF8E1")
+        btn_frame2.pack(pady=(0, 15))
+        
+        def do_update():
+            dlg.destroy()
+            self._do_download_update(download_url, asset_name)
+        
+        def do_open_release():
+            webbrowser.open(release_url)
+        
+        def do_ignore():
+            # 二次确认
+            if messagebox.askyesno("🔕 确认忽略", f"确定要忽略 {tag} 版本吗？\n\n忽略后，此版本不会再弹出更新提醒~\n下次有新版本时仍会通知你哦！", parent=dlg):
+                self.ignored_version = tag
+                self.save_config()
+                dlg.destroy()
+                # 提示已忽略
+                messagebox.showinfo("🔕 已忽略", f"已忽略 {tag} 版本~\n\n下次有新版本时小鸟会再来通知你！")
+        
+        # 第一行：主要操作
+        tk.Button(btn_frame1, text="🕊️ 好的，飞去更新！", font=("Microsoft YaHei", 11, "bold"),
+                  bg="#81C784", fg="white", bd=0, cursor="hand2",
+                  activebackground="#66BB6A", padx=18, pady=8,
+                  command=do_update).pack(side=tk.LEFT, padx=6)
+        
+        tk.Button(btn_frame1, text="🌐 在浏览器中查看", font=("Microsoft YaHei", 10),
+                  bg="#64B5F6", fg="white", bd=0, cursor="hand2",
+                  activebackground="#42A5F5", padx=12, pady=8,
+                  command=do_open_release).pack(side=tk.LEFT, padx=6)
+        
+        # 第二行：次要操作
+        tk.Button(btn_frame2, text="🌸 下次再说~", font=("Microsoft YaHei", 10),
+                  bg="#BCAAA4", fg="white", bd=0, cursor="hand2",
+                  activebackground="#A1887F", padx=14, pady=7,
+                  command=dlg.destroy).pack(side=tk.LEFT, padx=6)
+        
+        tk.Button(btn_frame2, text="🔕 忽略此次更新", font=("Microsoft YaHei", 10),
+                  bg="#FFE0B2", fg="#4E342E", bd=0, cursor="hand2",
+                  activebackground="#FFCC80", padx=14, pady=7,
+                  command=do_ignore).pack(side=tk.LEFT, padx=6)
+
+    def _do_download_update(self, download_url, asset_name):
+        """弹出下载进度窗口，后台下载新版本"""
+        dlg = tk.Toplevel(self.root)
+        dlg.title("📥 小鸟搬运中...")
+        dlg_w, dlg_h = 400, 180
+        sw = dlg.winfo_screenwidth()
+        sh = dlg.winfo_screenheight()
+        dlg.geometry(f"{dlg_w}x{dlg_h}+{(sw-dlg_w)//2}+{(sh-dlg_h)//2}")
+        dlg.configure(bg="#E8F5E9")
+        dlg.transient(self.root)
+        dlg.grab_set()
+        
+        tk.Label(dlg, text="🐦 小鸟正在努力搬运新版本...", font=("Microsoft YaHei", 12, "bold"),
+                 bg="#E8F5E9", fg="#2E7D32").pack(pady=(25, 5))
+        
+        status_label = tk.Label(dlg, text="正在连接 GitHub... ⏳", font=("Microsoft YaHei", 9),
+                               bg="#E8F5E9", fg="#555555")
+        status_label.pack(pady=5)
+        
+        progress_var = tk.DoubleVar(value=0)
+        progress_bar = ttk.Progressbar(dlg, variable=progress_var, maximum=100, length=300)
+        try:
+            progress_bar.pack(pady=10)
+        except:
+            pass  # ttk 不可用时跳过进度条
+        
+        percent_label = tk.Label(dlg, text="0%", font=("Microsoft YaHei", 9),
+                                bg="#E8F5E9", fg="#666666")
+        percent_label.pack()
+        
+        def download_thread():
+            try:
+                dest_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+                dest_path = os.path.join(dest_dir, asset_name)
+                
+                req = urllib.request.Request(download_url, headers={"User-Agent": "Water-redstart-Viewer"})
+                with urllib.request.urlopen(req, timeout=120) as resp:
+                    total = int(resp.headers.get("Content-Length", 0))
+                    downloaded = 0
+                    chunk_size = 65536
+                    
+                    def update_ui(msg, pct):
+                        self.root.after(0, lambda: status_label.config(text=msg))
+                        self.root.after(0, lambda: progress_var.set(pct))
+                        self.root.after(0, lambda: percent_label.config(text=f"{int(pct)}%"))
+                    
+                    update_ui(f"下载中... {asset_name}", 0)
+                    
+                    with open(dest_path, "wb") as f:
+                        while True:
+                            chunk = resp.read(chunk_size)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            if total > 0:
+                                pct = (downloaded / total) * 100
+                                update_ui(f"下载中... {downloaded//1024} KB / {total//1024} KB", pct)
+                    
+                    update_ui("✅ 下载完成！", 100)
+                    
+                    if sys.platform == 'win32':
+                        try:
+                            winsound.Beep(2400, 60)
+                            winsound.Beep(3000, 80)
+                            winsound.Beep(3600, 100)
+                        except:
+                            pass
+                    
+                    def finish():
+                        dlg.destroy()
+                        # 弹出完成提示
+                        done = tk.Toplevel(self.root)
+                        done.title("🎉 更新就绪！")
+                        dw, dh = 420, 220
+                        done.geometry(f"{dw}x{dh}+{(sw-dw)//2}+{(sh-dh)//2}")
+                        done.configure(bg="#E8F5E9")
+                        done.transient(self.root)
+                        done.grab_set()
+                        
+                        tk.Label(done, text="🎉 新版本已搬运到巢穴边！", font=("Microsoft YaHei", 13, "bold"),
+                                 bg="#E8F5E9", fg="#2E7D32").pack(pady=(20, 10))
+                        tk.Label(done, text=f"📁 文件位置：\n{dest_path}", font=("Consolas", 8),
+                                 bg="#E8F5E9", fg="#555555", wraplength=360).pack(pady=5)
+                        tk.Label(done, text="💡 请关闭当前程序，然后双击新文件即可~",
+                                 font=("Microsoft YaHei", 10), bg="#E8F5E9", fg="#388E3C").pack(pady=5)
+                        
+                        def open_folder():
+                            os.startfile(dest_dir) if sys.platform == 'win32' else None
+                        tk.Button(done, text="📂 打开文件所在位置", font=("Microsoft YaHei", 10, "bold"),
+                                  bg="#81C784", fg="white", bd=0, cursor="hand2",
+                                  activebackground="#66BB6A", padx=16, pady=6,
+                                  command=lambda: (open_folder(), done.destroy())).pack(pady=8)
+                        tk.Button(done, text="🐤 知道啦~", font=("Microsoft YaHei", 10),
+                                  bg="#BCAAA4", fg="white", bd=0, cursor="hand2",
+                                  activebackground="#A1887F", padx=14, pady=5,
+                                  command=done.destroy).pack(pady=(0, 10))
+                    self.root.after(500, finish)
+                    
+            except Exception as e:
+                def fail():
+                    dlg.destroy()
+                    messagebox.showwarning("哎呀", f"下载失败，小鸟迷路了…\n\n{e}\n\n你可以稍后重试，或前往 GitHub 手动下载~")
+                self.root.after(0, fail)
+        
+        threading.Thread(target=download_thread, daemon=True).start()
+
 if __name__ == "__main__":
     root = tk.Tk()
     root.withdraw() # 隐藏主窗口
@@ -1544,6 +1858,8 @@ if __name__ == "__main__":
         app = ImageViewer(root)
         splash.destroy()
         root.deiconify() # 显示出真正的应用窗口
+        # 首次打开时后台静默检查更新（无更新时不弹窗）
+        root.after(2000, lambda: threading.Thread(target=lambda: app.check_for_updates(silent=True), daemon=True).start())
         
     root.after(100, init_app)
     root.mainloop()
