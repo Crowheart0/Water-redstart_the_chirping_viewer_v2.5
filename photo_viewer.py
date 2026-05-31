@@ -17,12 +17,12 @@ import urllib.error
 import tempfile
 import webbrowser
 
-CURRENT_VERSION = "3.2"
+CURRENT_VERSION = "3.5"
 
 class ImageViewer:
     def __init__(self, root):
         self.root = root
-        self.root.title("🐦 Water-redstart: the chirping viewer v3.2 (双平台)")
+        self.root.title("🐦 Water-redstart: the chirping viewer v3.5 (双平台)")
         # 初始窗口大小（加宽以容纳顶栏完整快捷键指引）
         self.root.geometry("1050x750")
 
@@ -90,6 +90,7 @@ class ImageViewer:
         self.reverse_mode = False
         self.is_magnifying = False
         self.magnify_m = 3.8
+        self.super_mode = tk.BooleanVar(value=False)  # Super 连拍模式
 
         # 热键配置
         self.hotkey_next = 'd'
@@ -245,7 +246,7 @@ class ImageViewer:
                 messagebox.showwarning("哎呀", "孵化失败，小鸟去哪了？文件夹里似乎没有照片呢！")
                 self.show_empty_state()
                 self.top_info_label.config(text="🐾 欢迎！请挑选一个装满照片的文件夹开始吧~")
-                self.root.title("🐦 Water-redstart: the chirping viewer v3.2")
+                self.root.title("🐦 Water-redstart: the chirping viewer v3.5")
 
     def show_subfolder_dialog(self, parent_folder, subdirs):
         dialog = tk.Toplevel(self.root)
@@ -284,7 +285,7 @@ class ImageViewer:
             dialog.destroy()
             self.show_empty_state()
             self.top_info_label.config(text="🐾 欢迎！请挑选一个装满照片的文件夹开始吧~")
-            self.root.title("🐦 Water-redstart: the chirping viewer v3.2")
+            self.root.title("🐦 Water-redstart: the chirping viewer v3.5")
 
         # 双击列表项直接打开
         listbox.bind("<Double-1>", lambda e: on_open())
@@ -313,6 +314,7 @@ class ImageViewer:
         
         self.low_memory_mode = tk.BooleanVar(value=False)
         settings_menu.add_checkbutton(label="省内存模式 (预加载20张)", variable=self.low_memory_mode)
+        settings_menu.add_checkbutton(label="🚀 Super 连拍模式 (启动100张/翻页85张)", variable=self.super_mode)
         
         quality_menu = tk.Menu(settings_menu, tearoff=0)
         quality_menu.add_radiobutton(label="2K (运行快，省内存)", variable=self.image_quality, value=2000, command=self.change_quality)
@@ -342,7 +344,7 @@ class ImageViewer:
         help_menu.add_separator()
         help_menu.add_command(label="🕊️ 检查更新...", command=lambda: threading.Thread(target=self.check_for_updates, daemon=True).start())
         help_menu.add_command(label="关于", command=lambda: messagebox.showinfo(
-            "关于", "🐦 Water-redstart: the chirping viewer\n\n版本：3.2 (双平台)\n作者：Crowpaw@2026\n鸣谢：ARC, Untribiium, ~ris, 蓝嘴红鹊, 欧鹭风云, 瑞瑞的, 白鹡鸰, 灰喜鹊, 碳酸, 逢青, Gemini 3.1 Pro, GPT-5.5, DeepSeek-V4-Pro, YIP\n于一"
+            "关于", "🐦 Water-redstart: the chirping viewer\n\n版本：3.4 (双平台)\n作者：Crowpaw@2026\n鸣谢：ARC, Untribiium, ~ris, 蓝嘴红鹊, 欧鹭风云, 瑞瑞的, 白鹡鸰, 灰喜鹊, 碳酸, 逢青, Gemini 3.1 Pro, GPT-5.5, DeepSeek-V4-Pro, YIP\n于一"
         ))
         self.menubar.add_cascade(label="帮助", menu=help_menu)
         
@@ -428,14 +430,14 @@ class ImageViewer:
     def update_title(self):
         select_count = self.get_select_count()
         folder_name = os.path.basename(self.current_dir.rstrip('/\\')) if self.current_dir else '未选择目录'
-        base_title_prefix = f"🐦 Water-redstart: the chirping viewer v3.2 (双平台) - {folder_name}"
+        base_title_prefix = f"🐦 Water-redstart: the chirping viewer v3.5 (双平台) - {folder_name}"
         
-        info_help = (f"🕊️ 跳: [{self.hotkey_next.upper()}/{self.hotkey_arrow_right.title()}]  "
-                     f"💖 挑: [{self.hotkey_copy.upper()}/{self.hotkey_arrow_up.title()}]  "
-                     f"⏪ 撤: [{self.hotkey_undo.upper()}]  "
-                     f"📋 剪贴: [{self.hotkey_clip.upper()}/{self.hotkey_arrow_down.title()}]  "
-                     f"🔍 放大: [{self.hotkey_magnify.title()}]  "
-                     f"🪪 属性: [{self.hotkey_properties.upper()}]")
+        info_help = (f">> 跳: [{self.hotkey_next.upper()}/{self.hotkey_arrow_right.title()}]  "
+                     f"* 挑: [{self.hotkey_copy.upper()}/{self.hotkey_arrow_up.title()}]  "
+                     f"<< 撤: [{self.hotkey_undo.upper()}]  "
+                     f"[c] 剪贴: [{self.hotkey_clip.upper()}/{self.hotkey_arrow_down.title()}]  "
+                     f"~ 放大: [{self.hotkey_magnify.title()}]  "
+                     f"[i] 属性: [{self.hotkey_properties.upper()}]")
 
         if self.images and self.index < len(self.images):
             img_name = self.images[self.index]
@@ -444,13 +446,13 @@ class ImageViewer:
             if len(group_files) > 1:
                 group_info = " | 🗂️ J+RAW"
                 
-            self.root.title(f"{base_title_prefix} | 进度: {self.index + 1}/{len(self.images)} | 🪺入巢: {select_count} | 当前: {img_name}{group_info}")
+            self.root.title(f"{base_title_prefix} | 进度: {self.index + 1}/{len(self.images)} | 🏠入巢: {select_count} | 当前: {img_name}{group_info}")
             self.top_info_label.config(
-                text=f"🐾 进度：{self.index + 1}/{len(self.images)} 📷 【{img_name}】{group_info} | 🪺 入巢: {select_count}只 | {info_help}"
+                text=f"🐾 进度：{self.index + 1}/{len(self.images)} 📷 【{img_name}】{group_info} | 🏠 入巢: {select_count}只 | {info_help}"
             )
         else:
             self.root.title(base_title_prefix)
-            self.top_info_label.config(text=f"🪺 入巢: {select_count}只 | {info_help}")
+            self.top_info_label.config(text=f"🏠 入巢: {select_count}只 | {info_help}")
 
     def show_hotkey_dialog(self):
         dialog = tk.Toplevel(self.root)
@@ -528,11 +530,11 @@ class ImageViewer:
         btn_magnify = tk.Button(dialog, text=f"[{getattr(self, 'hotkey_magnify', 'space')}] (点击修改)", width=18, bg="#FFFFFF", command=lambda: prompt_key(btn_magnify, 'temp_magnify'))
         btn_magnify.grid(row=9, column=1, sticky="w")
 
-        tk.Label(dialog, text="🪪 属性快捷键:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=10, column=0, padx=20, pady=5, sticky="e")
+        tk.Label(dialog, text="🏷 属性快捷键:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=10, column=0, padx=20, pady=5, sticky="e")
         btn_properties = tk.Button(dialog, text=f"[{getattr(self, 'hotkey_properties', 'i')}] (点击修改)", width=18, bg="#FFFFFF", command=lambda: prompt_key(btn_properties, 'temp_properties'))
         btn_properties.grid(row=10, column=1, sticky="w")
 
-        tk.Label(dialog, text="🪺 入巢文件夹名:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=11, column=0, padx=20, pady=5, sticky="e")
+        tk.Label(dialog, text="🏠 入巢文件夹名:", bg="#FFECD2", font=("Microsoft YaHei", 10)).grid(row=11, column=0, padx=20, pady=5, sticky="e")
         
         folder_frame = tk.Frame(dialog, bg="#FFECD2")
         folder_frame.grid(row=11, column=1, sticky="w")
@@ -639,6 +641,7 @@ class ImageViewer:
                     self.image_quality.set(config.get("image_quality", 8000))
                     self.select_folder_name = config.get("select_folder_name", "SELECT")
                     self.ignored_version = config.get("ignored_version", None)
+                    self.super_mode.set(config.get("super_mode", False))
             except Exception:
                 pass
 
@@ -664,7 +667,8 @@ class ImageViewer:
                         "keep_top_bar_in_fullscreen": getattr(self, 'keep_top_bar_in_fullscreen', False),
                         "image_quality": self.image_quality.get(),
                         "select_folder_name": self.select_folder_name,
-                        "ignored_version": getattr(self, 'ignored_version', None)
+                        "ignored_version": getattr(self, 'ignored_version', None),
+                        "super_mode": self.super_mode.get()
                     }, f)
             except Exception:
                 pass
@@ -711,7 +715,13 @@ class ImageViewer:
             if current_idx - i >= 0:
                 to_cache_indices.append(current_idx - i)
                 
-        preload_count = 20 if getattr(self, 'low_memory_mode', None) and self.low_memory_mode.get() else 50
+        # Super 连拍模式：启动时100张，之后每张85张；省内存模式：20张；普通：50张
+        if self.super_mode.get():
+            # 判断是否首次加载（启动时 current_idx 接近 0 且缓存几乎为空）
+            is_startup = (current_idx <= 2 and len(self.image_cache) < 10)
+            preload_count = 100 if is_startup else 85
+        else:
+            preload_count = 20 if getattr(self, 'low_memory_mode', None) and self.low_memory_mode.get() else 50
         for i in range(1, preload_count + 1):
             if current_idx + i < len(self.images):
                 to_cache_indices.append(current_idx + i)
@@ -823,6 +833,14 @@ class ImageViewer:
         # 抛入后台线程进行加载，不阻塞UI主线程
         if self.preload_thread and self.preload_thread.is_alive():
             return
+        # Super 模式启动时显示加载提示
+        if self.super_mode.get():
+            is_startup = (self.index <= 2 and len(self.image_cache) < 10)
+            if is_startup:
+                old_text = self.top_info_label.cget("text")
+                self.top_info_label.config(text="🚀 Super 连拍模式启动中，小鸟正在预加载 100 张照片...")
+                # 加载完成后恢复（约 2 秒后）
+                self.root.after(2500, lambda: self.top_info_label.config(text=old_text) if self.top_info_label.winfo_exists() else None)
         self.preload_thread = threading.Thread(target=self.preload_images_worker, args=(self.index,), daemon=True)
         self.preload_thread.start()
 
@@ -938,7 +956,7 @@ class ImageViewer:
         if not self.images:
             self.show_empty_state()
             self.top_info_label.config(text="🐾 欢迎！请挑选一个装满照片的文件夹开始吧~")
-            self.root.title("🐦 Water-redstart: the chirping viewer v3.2")
+            self.root.title("🐦 Water-redstart: the chirping viewer v3.5")
             return
             
         # 2. 确认有图片后，再保存当前合法的路径到配置文件中
@@ -1318,36 +1336,82 @@ class ImageViewer:
         shooting_time_str = None
         fmt = ext.upper().lstrip('.')
         
-        def _try_read_exif_from_pil(img_obj):
-            """从PIL图像对象读取EXIF拍摄时间，返回(datetime_str, fmt)"""
+        def _read_exif_from_pil(img_obj):
+            """从PIL图像对象读取EXIF，返回 {shooting_time, iso, shutter, aperture, focal}"""
             nonlocal fmt
+            result = {}
             try:
                 fmt = img_obj.format or ext.upper().lstrip('.')
                 exif = img_obj.getexif()
-                if exif:
+                # 合并主 IFD 和 EXIF 子 IFD (0x8769) 的标签
+                exif_ifd = exif.get_ifd(0x8769) if hasattr(exif, 'get_ifd') else {}
+                all_tags = {}
+                for k, v in exif.items():
+                    all_tags[k] = v
+                for k, v in exif_ifd.items():
+                    all_tags[k] = v
+                if all_tags:
+                    # 拍摄时间 (优先子IFD的36867/36868，其次主IFD的306)
                     for tag in (36867, 36868, 306):
-                        dt_str = exif.get(tag)
+                        dt_str = all_tags.get(tag)
                         if dt_str and isinstance(dt_str, str) and dt_str.strip():
                             try:
                                 dt = datetime.datetime.strptime(dt_str.strip(), "%Y:%m:%d %H:%M:%S")
-                                return dt.strftime("%Y-%m-%d %H:%M:%S")
+                                result['shooting_time'] = dt.strftime("%Y-%m-%d %H:%M:%S")
                             except:
-                                return dt_str.strip()
+                                result['shooting_time'] = dt_str.strip()
+                            break
+                    # ISO (34855)
+                    iso_val = all_tags.get(34855)
+                    if iso_val is not None:
+                        result['iso'] = str(iso_val)
+                    # 曝光时间 / 快门速度 (33434) — PIL返回IFDRational，需float()转换
+                    et = all_tags.get(33434)
+                    if et is not None:
+                        try:
+                            val = float(et)
+                            if val < 1:
+                                result['shutter'] = f"1/{int(1/val)}s"
+                            else:
+                                result['shutter'] = f"{val:.1f}s"
+                        except:
+                            pass
+                    # 光圈 (33437)
+                    fn = all_tags.get(33437)
+                    if fn is not None:
+                        try:
+                            result['aperture'] = f"f/{float(fn):.1f}"
+                        except:
+                            pass
+                    # 焦距 (37386)
+                    fl = all_tags.get(37386)
+                    if fl is not None:
+                        try:
+                            result['focal'] = f"{float(fl):.0f}mm"
+                        except:
+                            pass
             except:
                 pass
-            return None
+            return result
         
         # 先尝试 PIL 直接打开（适用于JPG/PNG/部分RAW）
+        exif_data = {}
         try:
             from PIL import Image
             with Image.open(img_path) as im:
                 dims_str = f"{im.size[0]} x {im.size[1]} 像素"
-                shooting_time_str = _try_read_exif_from_pil(im)
+                exif_data = _read_exif_from_pil(im)
         except:
             pass
+        shooting_time_str = exif_data.get('shooting_time')
         
-        # PIL 失败或未读取到EXIF时，尝试通过rawpy缩略图读取（RAW专属）
-        if shooting_time_str is None or dims_str == "未知":
+        # PIL 失败或 EXIF 不完整时，尝试通过 rawpy 缩略图读取（RAW 专属）
+        exif_missing = (
+            shooting_time_str is None or dims_str == "未知" or
+            not exif_data.get('iso') or not exif_data.get('shutter') or
+            not exif_data.get('aperture') or not exif_data.get('focal')
+        )
+        if exif_missing:
             raw_exts = ('.arw', '.sr2', '.srf', '.crw', '.cr2', '.cr3', '.nef', '.nrw', '.dng', '.orf', '.rw2', '.raf', '.pef')
             if ext in raw_exts:
                 try:
@@ -1361,14 +1425,29 @@ class ImageViewer:
                                     dims_str = f"{raw.sizes.raw_width} x {raw.sizes.raw_height} 像素 (RAW)"
                                 except:
                                     pass
-                        # 通过JPEG缩略图读取EXIF
-                        if shooting_time_str is None:
+                        # 通过JPEG缩略图读取EXIF（RAW文件均含完整EXIF的JPEG预览）
+                        exif_incomplete = (
+                            shooting_time_str is None or
+                            not exif_data.get('iso') or
+                            not exif_data.get('shutter') or
+                            not exif_data.get('aperture') or
+                            not exif_data.get('focal')
+                        )
+                        if exif_incomplete:
                             try:
                                 thumb = raw.extract_thumb()
                                 if thumb.format == rawpy.ThumbFormat.JPEG:
                                     from PIL import Image as PILImage
                                     thumb_img = PILImage.open(io.BytesIO(thumb.data))
-                                    shooting_time_str = _try_read_exif_from_pil(thumb_img)
+                                    thumb_exif = _read_exif_from_pil(thumb_img)
+                                    if shooting_time_str is None:
+                                        shooting_time_str = thumb_exif.get('shooting_time')
+                                    # 用缩略图EXIF补全所有缺失字段
+                                    for key in ('iso', 'shutter', 'aperture', 'focal'):
+                                        if not exif_data.get(key) and thumb_exif.get(key):
+                                            exif_data[key] = thumb_exif[key]
+                                    if not exif_data.get('shooting_time') and thumb_exif.get('shooting_time'):
+                                        exif_data['shooting_time'] = thumb_exif['shooting_time']
                                     thumb_img.close()
                             except:
                                 pass
@@ -1397,7 +1476,7 @@ class ImageViewer:
         dlg.title(f"📋 {fname} 的身份卡")
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
-        dlg_w, dlg_h = 520, 550
+        dlg_w, dlg_h = 520, 620
         x = (sw - dlg_w) // 2
         y = (sh - dlg_h) // 2
         dlg.geometry(f"{dlg_w}x{dlg_h}+{x}+{y}")
@@ -1427,6 +1506,15 @@ class ImageViewer:
         ]
         if shooting_time_str:
             props.append(("📷 拍摄时间", shooting_time_str))
+        # ISO / 快门 / 光圈 / 焦距
+        if exif_data.get('iso'):
+            props.append(("🔆 ISO", f"ISO {exif_data['iso']}"))
+        if exif_data.get('shutter'):
+            props.append(("⏱ 快门速度", exif_data['shutter']))
+        if exif_data.get('aperture'):
+            props.append(("🔵 光圈", exif_data['aperture']))
+        if exif_data.get('focal'):
+            props.append(("🔭 焦距", exif_data['focal']))
         props.append(("📁 完整路径", img_path))
         
         def _make_val_widget(parent, value, bg_color, is_long):
@@ -1624,7 +1712,7 @@ class ImageViewer:
         
         tk.Label(dlg, text="🌿 小鸟巢穴一切安好~", font=("Microsoft YaHei", 14, "bold"),
                  bg="#E8F5E9", fg="#2E7D32").pack(pady=(25, 10))
-        tk.Label(dlg, text=f"你已经是最新版本啦！\n\n🪺 当前版本：{CURRENT_VERSION}\n🕊️ 线上版本：{tag}",
+        tk.Label(dlg, text=f"你已经是最新版本啦！\n\n🏠 当前版本：{CURRENT_VERSION}\n🕊️ 线上版本：{tag}",
                  font=("Microsoft YaHei", 11), bg="#E8F5E9", fg="#33691E").pack(pady=(0, 15))
         tk.Button(dlg, text="🐤 知道啦，飞走~", font=("Microsoft YaHei", 11, "bold"),
                   bg="#81C784", fg="white", bd=0, cursor="hand2",
